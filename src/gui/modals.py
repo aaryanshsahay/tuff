@@ -86,11 +86,22 @@ class InfoModal:
             [f"{speaker}: {msg}" for speaker, msg in conv_screen.messages]
         )
 
+        # Get already generated snippets to avoid duplicates
+        existing_snippets = self.snippet_cache.get(suspect_name, [])
+        previous_snippets_text = ""
+        if existing_snippets:
+            previous_snippets_text = f"""PREVIOUS SNIPPETS (DO NOT GENERATE SIMILAR ONES):
+{chr(10).join(f'- "{snippet}"' for snippet in existing_snippets)}
+
+"""
+
         snippet_prompt = f"""Analyze this interview with {suspect_name} and write ONE short suspicious or notable observation (5-7 words max).
 Example: "David seemed nervous about Emma"
 
-Transcript:
+{previous_snippets_text}TRANSCRIPT:
 {conversation_text}
+
+IMPORTANT: The snippet MUST be completely fresh and different from any previous snippets. Focus on new observations, different aspects of the conversation, or new details mentioned. Do NOT repeat or paraphrase previous observations.
 
 Observation:"""
 
@@ -108,7 +119,7 @@ Observation:"""
             if suspect_name not in self.snippet_cache:
                 self.snippet_cache[suspect_name] = []
 
-            # Append snippet to list
+            # Append snippet to list (duplicates will be filtered by generate_logs_content)
             self.snippet_cache[suspect_name].append(snippet)
         except Exception as e:
             if suspect_name not in self.snippet_cache:

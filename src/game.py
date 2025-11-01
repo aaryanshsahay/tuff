@@ -47,6 +47,7 @@ class MurderMysteryGame:
 
         # Game state
         self.test_mode = test_mode
+        self.game_started = False  # Track if title screen has been passed
         self.master = None
         self.orchestrator = None
         self.cards = []
@@ -188,6 +189,14 @@ class MurderMysteryGame:
                 return False
 
             elif event.type == pygame.KEYDOWN:
+                # Handle title screen - space to continue
+                if not self.game_started and event.key == pygame.K_SPACE:
+                    self.game_started = True
+                    # Open facts popup automatically
+                    if self.facts_modal:
+                        self.facts_modal.toggle()
+                    return True
+
                 # Pass input to active conversation screen if one is open
                 if self.active_conversation:
                     self.conversation_screens[self.active_conversation].handle_input(event)
@@ -308,6 +317,11 @@ class MurderMysteryGame:
 
     def draw(self):
         """Draw all game elements"""
+        # If game hasn't started, show title screen
+        if not self.game_started:
+            self._draw_title_screen()
+            return
+
         # Draw background
         self.background.draw(self.screen)
 
@@ -334,6 +348,40 @@ class MurderMysteryGame:
         # Draw active conversation screen
         if self.active_conversation:
             self.conversation_screens[self.active_conversation].draw(self.screen)
+
+        # Update display
+        pygame.display.flip()
+
+    def _draw_title_screen(self):
+        """Draw the title screen with game title and continue prompt"""
+        # Draw background
+        self.background.draw(self.screen)
+
+        # Create semi-transparent overlay
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay.set_alpha(150)
+        overlay.fill(BLACK)
+        self.screen.blit(overlay, (0, 0))
+
+        # Load and render title with raster forge font
+        try:
+            title_font = pygame.font.Font("assets/raster-forge-font/RasterForgeRegular-JpBgm.ttf", 96)
+            title_text = title_font.render("Murder at Bly Manor", True, WHITE)
+        except:
+            # Fallback if font not found
+            title_font = pygame.font.Font(None, 96)
+            title_text = title_font.render("Murder at Bly Manor", True, WHITE)
+
+        title_x = (SCREEN_WIDTH - title_text.get_width()) // 2
+        title_y = (SCREEN_HEIGHT - title_text.get_height()) // 2 - 100
+        self.screen.blit(title_text, (title_x, title_y))
+
+        # Draw continue prompt
+        continue_font = pygame.font.Font(None, 32)
+        continue_text = continue_font.render("Press SPACE to continue", True, LIGHT_GRAY)
+        continue_x = (SCREEN_WIDTH - continue_text.get_width()) // 2
+        continue_y = title_y + title_text.get_height() + 150
+        self.screen.blit(continue_text, (continue_x, continue_y))
 
         # Update display
         pygame.display.flip()

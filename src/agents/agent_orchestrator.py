@@ -29,6 +29,15 @@ class AgentOrchestrator:
         # Build narrative context
         self.narrative_context = self._build_narrative_context()
 
+        # Track what suspects have said across interrogations (for coherence)
+        self.suspect_statements = {}  # suspect_name -> list of key statements
+
+        # Track which clues have been revealed to the detective
+        self.revealed_clues = set()  # set of clue texts that have been mentioned
+
+        # Track interrogation history per suspect (for calculating disclosure trust)
+        self.interrogation_history = {}  # suspect_name -> list of (question, response, tone)
+
     def _build_narrative_context(self):
         """Build rich narrative context about who knows what and why"""
         context = {
