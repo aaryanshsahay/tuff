@@ -1,0 +1,53 @@
+{
+  "victim": "James",
+  "murderer": "David",
+  "murderer_motive": "Jealousy over a romantic relationship",
+  "crime_location": "The dining room",
+  "cause_of_death": "Stabbing (with a letter opener from the study)",
+  "time_of_death": "Around 11:45 PM last night",
+  "alibis": {
+    "Nick": "I was in my study working on a case brief until around midnight.",
+    "Sarah": "I was painting in the art studio, I was alone there most of the evening.",
+    "James": "N/A - VICTIM",
+    "Emma": "I was in the library reviewing some code and documents.",
+    "David": "I was in the guest house, working on some writing projects.",
+    "Lisa": "I was in my room playing music, I didn't see anyone."
+  },
+  "relationships": {
+    "Nick_Sarah": "Close Friend",
+    "Nick_James": "Acquaintance",
+    "Nick_Emma": "Business Partner",
+    "Nick_David": "Rival",
+    "Nick_Lisa": "Acquaintance",
+    "Sarah_James": "Romantic Partner",
+    "Sarah_Emma": "Close Friend",
+    "Sarah_David": "Enemy",
+    "Sarah_Lisa": "Close Friend",
+    "James_Emma": "Acquaintance",
+    "James_David": "Rival",
+    "James_Lisa": "Romantic Partner",
+    "Emma_David": "Acquaintance",
+    "Emma_Lisa": "Business Partner",
+    "David_Lisa": "Enemy"
+  },
+  "clues": [
+    {
+      "clue": "Found a love letter between Sarah and James in the study desk",
+      "known_by": "Emma",
+      "is_true": true,
+      "category": "physical evidence"
+    },
+    {
+      "clue": "David was seen leaving the dining room around 11:40 PM by Lisa",
+      "known_by": "Lisa",
+      "is_true": true,
+      "category": "witness statement"
+    },
+    {
+      "clue": "Nick heard arguing between Sarah and David earlier in the evening",
+      "known_by": "Nick",
+      "is_true": true,
+      "category": "witness statement"
+    }
+  ]
+}
