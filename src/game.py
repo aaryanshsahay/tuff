@@ -15,7 +15,8 @@ from src.gui import (
     IntroductionModal,
     ConversationScreen,
 )
-from src.agents import MurderMysteryMaster, SuspectAgent, AgentOrchestrator
+from src.agents import MurderMysteryMaster, SuspectAgent, AgentOrchestrator, AgentCommunicationManager
+from src.agents.hyperspell_context import initialize_gossip_manager
 from src.utils import init_cursors, set_default_cursor, set_map_frame_cursor, ParallaxBackground
 from src.visualization import AgentBehaviorVisualizer
 
@@ -40,7 +41,7 @@ def get_card_positions():
 
 
 class MurderMysteryGame:
-    def __init__(self, test_mode=False, visualize_mode=False):
+    def __init__(self, test_mode=False, visualize_mode=False, chaos_mode=False):
         # Initialize pygame
         pygame.init()
 
@@ -61,9 +62,13 @@ class MurderMysteryGame:
         # Initialize cursors
         init_cursors()
 
+        # Initialize Hyperspell gossip manager for this game session
+        initialize_gossip_manager()
+
         # Game state
         self.test_mode = test_mode
         self.visualize_mode = visualize_mode
+        self.chaos_mode = chaos_mode
         self.visualizer = None  # Will be initialized if visualize_mode is True
         self.game_started = False  # Track if title screen has been passed
         self.master = None
@@ -132,6 +137,18 @@ class MurderMysteryGame:
                 viz_height
             )
 
+        # Initialize communication manager for chaos mode
+        self.communication_manager = None
+        if self.chaos_mode:
+            print("🌪️ CHAOS MODE ENABLED: Agents will gossip about interrogations...\n")
+            self.communication_manager = AgentCommunicationManager(
+                {},  # Will be populated with agents dict
+                self.master.relationships,
+                self.master.case_state,
+                self.visualizer if self.visualize_mode else None,  # Pass visualizer for arrows
+                self.orchestrator  # Pass orchestrator to receive gossip summaries
+            )
+
         # Create menu buttons (left side)
         button_width = 240
         button_height = 200
@@ -180,10 +197,19 @@ class MurderMysteryGame:
                     )
 
                     # Create conversation screen
+                    # Determine chaos callback
+                    chaos_callback = None
+                    if self.chaos_mode and self.communication_manager:
+                        chaos_callback = self.communication_manager.trigger_agent_communications
+
                     conv_screen = ConversationScreen(
-                        suspect, agent, SCREEN_WIDTH, SCREEN_HEIGHT, self.logs_modal, self.visualizer if self.visualize_mode else None
+                        suspect, agent, SCREEN_WIDTH, SCREEN_HEIGHT, self.logs_modal, self.visualizer if self.visualize_mode else None, chaos_callback
                     )
                     self.conversation_screens[suspect_name] = conv_screen
+
+                    # Add agent to communication manager
+                    if self.communication_manager:
+                        self.communication_manager.agents[suspect_name] = agent
 
                 card_index += 1
 

@@ -432,6 +432,39 @@ Return ONLY a JSON array of 2-3 facts (strings), no other text. Example format:
         """
         self.revealed_clues.add(clue_text)
 
+    def record_agent_gossip(self, agent_name, gossip_summary):
+        """
+        Record gossip/memory summary retrieved from Hyperspell.
+        This tracks what agents have been saying to each other.
+
+        Args:
+            agent_name: Name of the agent whose gossip was recorded
+            gossip_summary: Summary of the gossip from Hyperspell
+        """
+        if not hasattr(self, 'agent_gossip_summaries'):
+            self.agent_gossip_summaries = {}
+
+        if agent_name not in self.agent_gossip_summaries:
+            self.agent_gossip_summaries[agent_name] = []
+
+        self.agent_gossip_summaries[agent_name].append(gossip_summary)
+        print(f"✅ Recorded gossip summary for {agent_name} in orchestrator")
+        print(f"   Summary: {gossip_summary}")
+
+    def get_agent_gossip_summaries(self, agent_name):
+        """
+        Get all gossip summaries recorded for an agent.
+
+        Args:
+            agent_name: Name of the agent
+
+        Returns:
+            List of gossip summaries or empty list if none found
+        """
+        if not hasattr(self, 'agent_gossip_summaries'):
+            return []
+        return self.agent_gossip_summaries.get(agent_name, [])
+
     def get_contradiction_analysis(self, suspect_name):
         """
         Analyze a suspect's statements for contradictions.

@@ -309,14 +309,19 @@ class ArrowConnection:
     def __init__(self, from_node, to_node, arrow_type="briefing"):
         self.from_node = from_node
         self.to_node = to_node
-        self.arrow_type = arrow_type  # "briefing" or "feedback"
+        self.arrow_type = arrow_type  # "briefing", "feedback", or "communication"
         self.is_active = False
         self.active_timer = 0
         self.active_timer_duration = 0
         self.progress = 0
 
         # Colors based on type
-        self.color = (200, 100, 255) if arrow_type == "briefing" else (100, 255, 200)
+        if arrow_type == "briefing":
+            self.color = (200, 100, 255)  # Purple: orchestrator -> agent
+        elif arrow_type == "feedback":
+            self.color = (100, 255, 200)  # Cyan: agent -> orchestrator
+        else:  # communication
+            self.color = (100, 200, 100)  # Green: agent -> agent
 
     def set_active(self, duration=180):
         """Activate the arrow (duration in frames, default 180 = 3 seconds at 60 FPS)"""
@@ -559,6 +564,14 @@ class AgentBehaviorVisualizer:
             self.feedback_arrows.append(arrow)
             self.conversation_traces.append(ConversationTrace(self.nodes[suspect_name], "feedback"))
 
+    def send_agent_communication(self, from_suspect, to_suspect, duration=120):
+        """Show communication between two agents (different color from orchestrator arrows)"""
+        if from_suspect in self.nodes and to_suspect in self.nodes:
+            # Create a green arrow for agent-to-agent communication
+            arrow = ArrowConnection(self.nodes[from_suspect], self.nodes[to_suspect], "communication")
+            arrow.set_active(duration)
+            self.feedback_arrows.append(arrow)  # Reuse feedback arrows list for display
+
     def send_relationship_interaction(self, suspect1, suspect2, duration=60):
         """Highlight relationship between two suspects"""
         for conn in self.connections:
@@ -676,3 +689,6 @@ class AgentBehaviorVisualizer:
 
         info_text2 = font_large.render("Cyan arrow: Feedback → orchestrator", True, (100, 255, 200))
         surface.blit(info_text2, (info_x, legend_y + 54))
+
+        info_text3 = font_large.render("Green arrow: Agent → Agent (gossip)", True, (100, 200, 100))
+        surface.blit(info_text3, (info_x, legend_y + 70))

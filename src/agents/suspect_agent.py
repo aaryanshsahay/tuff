@@ -3,6 +3,7 @@ import json
 import random
 from dotenv import load_dotenv
 from openai import OpenAI
+from .hyperspell_context import get_agent_gossip_context
 
 load_dotenv()
 
@@ -76,6 +77,44 @@ class SuspectAgent:
         # Build the system prompt
         self.system_prompt = self._build_system_prompt()
 
+    def _build_gossip_context(self):
+        """Build context about ALL gossip heard from other agents, using Hyperspell storage"""
+        # Try to retrieve from Hyperspell first
+        hyperspell_context = get_agent_gossip_context(self.name)
+        if hyperspell_context:
+            print(f"🔍 [DEBUG] {self.name} retrieved gossip context from Hyperspell")
+            return hyperspell_context
+
+        # Fall back to local gossip_heard list if Hyperspell unavailable or empty
+        if not hasattr(self, 'gossip_heard') or not self.gossip_heard:
+            return ""
+
+        gossip_context = "\n📢 ACCUMULATED GOSSIP YOU'VE HEARD (from other agents):\n"
+        gossip_context += "You've heard the following information from agents in your network:\n\n"
+
+        # Group gossip by source for clarity
+        gossip_by_source = {}
+        for gossip in self.gossip_heard:
+            from_agent = gossip.get("from", "Unknown")
+            if from_agent not in gossip_by_source:
+                gossip_by_source[from_agent] = []
+            gossip_by_source[from_agent].append(gossip)
+
+        # Add all gossip organized by source
+        for from_agent, gossips in gossip_by_source.items():
+            rel_type = gossips[0].get("relationship", "")
+            gossip_context += f"From {from_agent} ({rel_type}):\n"
+            for i, gossip in enumerate(gossips, 1):
+                info = gossip.get("info", "")
+                gossip_context += f"  {i}. \"{info}\"\n"
+            gossip_context += "\n"
+
+        gossip_context += "Remember: This accumulated gossip might be incomplete or distorted, but it's what you've learned from your network.\n"
+
+        print(f"🔍 [DEBUG] {self.name} including local gossip context in prompt: {len(self.gossip_heard)} total pieces of gossip")
+
+        return gossip_context
+
     def _build_system_prompt(self, conversation_history=None):
         """Build a detailed system prompt for this suspect
 
@@ -91,6 +130,9 @@ class SuspectAgent:
                 role = "DETECTIVE" if msg.get("role") == "user" else "YOU"
                 content = msg.get("content", "")
                 conversation_context += f"{role}: {content}\n"
+
+        # Build gossip context
+        gossip_context = self._build_gossip_context()
 
         relationships_text = "\n".join([
             f"- {suspect}: {rel}"
@@ -196,7 +238,7 @@ YOUR RELATIONSHIPS:
 YOUR ROLE IN THIS CASE:
 {behavior}
 
-{conversation_context}
+{gossip_context}{conversation_context}
 
 ⚠️ CRITICAL RESPONSE RULES FOR THIS CONVERSATION:
 - Any evidence, facts, or clues that the detective has explicitly mentioned in the conversation above, you CANNOT completely deny or ignore

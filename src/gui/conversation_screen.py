@@ -8,7 +8,7 @@ from src.config import *
 
 
 class ConversationScreen:
-    def __init__(self, suspect_data, agent, screen_width, screen_height, logs_modal=None, visualizer=None):
+    def __init__(self, suspect_data, agent, screen_width, screen_height, logs_modal=None, visualizer=None, chaos_callback=None):
         self.suspect = suspect_data
         self.agent = agent
         self.is_open = False
@@ -16,6 +16,9 @@ class ConversationScreen:
         self.screen_height = screen_height
         self.logs_modal = logs_modal
         self.visualizer = visualizer
+        self.chaos_callback = chaos_callback  # Callback for chaos mode agent communications
+        self.last_question = None  # Track the last question asked
+        self.last_response = None  # Track the last response received
 
         # Conversation history
         self.messages = []
@@ -122,6 +125,7 @@ class ConversationScreen:
                 if self.user_input.strip() and not self.is_loading:
                     self.messages.append(("You", self.user_input))
                     self.loading_message = self.user_input
+                    self.last_question = self.user_input  # Track for chaos mode
                     self.user_input = ""
                     self.is_loading = True
                     self.loading_timer = 0
@@ -136,6 +140,9 @@ class ConversationScreen:
             elif event.key == pygame.K_BACKSPACE:
                 self.user_input = self.user_input[:-1]
             elif event.key == pygame.K_ESCAPE:
+                # Trigger chaos mode callback if enabled and conversation had exchanges
+                if self.chaos_callback and self.last_question and self.last_response:
+                    self.chaos_callback(self.suspect["name"], self.last_question, self.last_response)
                 self.is_open = False
         elif event.type == pygame.TEXTINPUT:
             if len(self.user_input) < 100 and not self.is_loading:  # Limit input length
@@ -237,33 +244,45 @@ class ConversationScreen:
             # Draw visual progress bars (level number of bars) or icon for level 0
             bar_x = info_x + 140
 
-            # Check if this trait is animating
+            # Convert level to int for drawing
+            level_int = int(level)
+
+            # Check if this trait is animating and update animation timer
+            change_value = None
             is_animating = trait in self.personality_changes
+            should_blink = False
+
             if is_animating:
                 change_value, frames_left = self.personality_changes[trait]
-                # Blinking effect - blink every 15 frames (shows/hides for 0.25 seconds)
-                should_show = (frames_left % 30) < 15
+                # Decrement the animation timer
                 self.personality_changes[trait] = (change_value, frames_left - 1)
-                if frames_left <= 0:
+                # Blinking effect - blink every 20 frames (10 visible, 10 invisible)
+                should_blink = (frames_left % 20) < 10
+                if frames_left <= 1:  # Remove when timer reaches 0
                     del self.personality_changes[trait]
-            else:
-                should_show = True
 
-            if should_show:
-                if level == 0:
-                    # Draw level 0 icon (slim)
-                    if self.level_zero_icon:
-                        surface.blit(self.level_zero_icon, (bar_x, personality_y))
-                else:
-                    # Draw visual progress bars (level number of bars)
-                    for i in range(level):
-                        if self.progress_bar:
-                            surface.blit(self.progress_bar, (bar_x + i * 18, personality_y))
+            # Always draw the current bars with the updated level
+            if level_int == 0:
+                # Draw level 0 icon (slim)
+                if self.level_zero_icon and (not is_animating or should_blink):
+                    surface.blit(self.level_zero_icon, (bar_x, personality_y))
+            else:
+                # Draw visual progress bars (level number of bars)
+                for i in range(level_int):
+                    # Only blink the new bar (the last one added)
+                    bar_index = i
+                    is_new_bar = (bar_index == level_int - 1 and change_value is not None and change_value > 0)
+
+                    # Don't draw new bars when blinking is in hidden phase
+                    if is_new_bar and is_animating and not should_blink:
+                        continue
+
+                    if self.progress_bar:
+                        surface.blit(self.progress_bar, (bar_x + i * 18, personality_y))
 
             # Draw +1 or -1 indicator if animating
-            if is_animating and trait in self.personality_changes:
-                change_value, _ = self.personality_changes[trait]
-                change_text = f"{change_value:+d}"
+            if is_animating and change_value is not None:
+                change_text = f"{change_value:+.1f}"  # Show as decimal
 
                 # Color logic: Trust +1 is good (green), others +1 is bad (red)
                 if trait == "Trust":
@@ -272,7 +291,7 @@ class ConversationScreen:
                     change_color = (255, 100, 100) if change_value > 0 else (100, 255, 100)
 
                 indicator_surface = self.text_font.render(change_text, True, change_color)
-                indicator_x = bar_x + (level * 18) + 5
+                indicator_x = bar_x + (level_int * 18) + 5
                 surface.blit(indicator_surface, (indicator_x, personality_y - 5))
 
             personality_y += 25
@@ -297,6 +316,10 @@ class ConversationScreen:
         # Add pending response if available
         if self.pending_response:
             self.messages.append((self.suspect["name"], self.pending_response))
+
+            # Track the last response for chaos mode
+            self.last_response = self.pending_response
+
             self.pending_response = None
             messages_to_show = self.messages[-max_visible_messages:]
 
