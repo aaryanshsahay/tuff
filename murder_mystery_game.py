@@ -1,6 +1,7 @@
 import pygame
 import sys
 import os
+import threading
 from dotenv import load_dotenv
 from mystery_master import MurderMysteryMaster
 
@@ -89,12 +90,391 @@ def get_card_positions():
     return positions
 
 
+class ConversationScreen:
+    def __init__(self, suspect_data, agent, screen_width, screen_height, logs_modal=None):
+        self.suspect = suspect_data
+        self.agent = agent
+        self.is_open = False
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        self.logs_modal = logs_modal
+
+        # Conversation history
+        self.messages = []
+        self.user_input = ""
+        self.is_typing = False
+
+        # Loading animation
+        self.is_loading = False
+        self.loading_dots_frame = 0
+        self.loading_timer = 0
+        self.loading_message = None
+        self.pending_response = None
+
+        # Cache for opening statement
+        self.opening_statement = None
+
+        # Cache for responses (question -> response mapping)
+        self.response_cache = {}
+
+        # Track if conversation has been started
+        self.conversation_started = False
+
+        # Track conversation sessions for multiple observations
+        self.session_snippets = []  # List of snippets from different conversation sessions
+
+        # Fonts
+        self.title_font = pygame.font.Font(None, 36)
+        self.text_font = pygame.font.Font(None, 18)
+        self.input_font = pygame.font.Font(None, 20)
+
+        # Load portrait
+        portrait_path = CHARACTER_PORTRAITS.get(suspect_data["name"])
+        if portrait_path and os.path.exists(portrait_path):
+            self.portrait = pygame.image.load(portrait_path)
+            self.portrait = pygame.transform.scale(self.portrait, (150, 150))
+        else:
+            self.portrait = None
+
+        # Load progress bar image
+        progress_bar_path = "assets/progress/PNG/GUI-Kit-Pack-Free_04.png"
+        if os.path.exists(progress_bar_path):
+            self.progress_bar = pygame.image.load(progress_bar_path)
+            self.progress_bar = pygame.transform.scale(self.progress_bar, (15, 20))
+        else:
+            self.progress_bar = None
+
+        # Load level 0 icon (slim version)
+        level_zero_icon_path = "assets/progress/PNG/GUI-Kit-Pack-Free_01.png"
+        if os.path.exists(level_zero_icon_path):
+            self.level_zero_icon = pygame.image.load(level_zero_icon_path)
+            self.level_zero_icon = pygame.transform.scale(self.level_zero_icon, (6, 20))
+        else:
+            self.level_zero_icon = None
+
+
+    def handle_input(self, event):
+        """Handle keyboard input for conversation"""
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:
+                # Send message
+                if self.user_input.strip() and not self.is_loading:
+                    self.messages.append(("You", self.user_input))
+                    self.loading_message = self.user_input
+                    self.user_input = ""
+                    self.is_loading = True
+                    self.loading_timer = 0
+                    self.loading_dots_frame = 0
+
+                    # Start API call in background thread
+                    thread = threading.Thread(target=self._fetch_response_async)
+                    thread.daemon = True
+                    thread.start()
+            elif event.key == pygame.K_BACKSPACE:
+                self.user_input = self.user_input[:-1]
+            elif event.key == pygame.K_ESCAPE:
+                self.is_open = False
+        elif event.type == pygame.TEXTINPUT:
+            if len(self.user_input) < 100 and not self.is_loading:  # Limit input length
+                self.user_input += event.text
+
+    def _fetch_response_async(self):
+        """Fetch response from agent in background thread"""
+        try:
+            # Check if response is cached
+            if self.loading_message in self.response_cache:
+                self.pending_response = self.response_cache[self.loading_message]
+            else:
+                # Get response from agent and cache it
+                response, personality_changes = self.agent.respond(self.loading_message)
+                self.pending_response = response
+                self.response_cache[self.loading_message] = response
+        except Exception as e:
+            self.pending_response = f"Error getting response: {str(e)}"
+        finally:
+            self.is_loading = False
+
+    def get_window_rect(self):
+        """Get the rectangle of the conversation window"""
+        window_width = int(self.screen_width * 0.85)
+        window_height = int(self.screen_height * 0.90)
+        window_x = (self.screen_width - window_width) // 2
+        window_y = (self.screen_height - window_height) // 2
+        return pygame.Rect(window_x, window_y, window_width, window_height)
+
+    def draw(self, surface):
+        """Draw the conversation screen"""
+        if not self.is_open:
+            return
+
+        # Draw semi-transparent background
+        overlay = pygame.Surface((self.screen_width, self.screen_height))
+        overlay.set_alpha(50)
+        overlay.fill((0, 0, 0))
+        surface.blit(overlay, (0, 0))
+
+        # Draw main conversation window
+        window_width = int(self.screen_width * 0.85)
+        window_height = int(self.screen_height * 0.90)
+        window_x = (self.screen_width - window_width) // 2
+        window_y = (self.screen_height - window_height) // 2
+
+        # Draw window background
+        pygame.draw.rect(surface, DARK_GRAY, (window_x, window_y, window_width, window_height))
+        pygame.draw.rect(surface, ACCENT_COLOR, (window_x, window_y, window_width, window_height), 3)
+
+        # Draw suspect info section (left side)
+        info_width = 250
+        info_x = window_x + 20
+        info_y = window_y + 20
+
+        # Draw portrait
+        if self.portrait:
+            portrait_x = info_x + (info_width - 150) // 2
+            portrait_y = info_y
+            surface.blit(self.portrait, (portrait_x, portrait_y))
+
+        # Draw suspect name and info
+        name_text = self.title_font.render(self.suspect["name"], True, WHITE)
+        name_x = info_x + (info_width - name_text.get_width()) // 2
+        name_y = info_y + 170
+        surface.blit(name_text, (name_x, name_y))
+
+        # Draw personality traits
+        personality_y = name_y + 40
+        traits_title = self.text_font.render("Personality Traits:", True, LIGHT_GRAY)
+        surface.blit(traits_title, (info_x, personality_y))
+
+        personality_y += 25
+        for trait, level in self.agent.get_personality_state().items():
+            # Draw trait name
+            trait_text = self.text_font.render(f"{trait}:", True, LIGHT_GRAY)
+            surface.blit(trait_text, (info_x, personality_y))
+
+            # Draw visual progress bars (level number of bars) or icon for level 0
+            bar_x = info_x + 140
+            if level == 0:
+                # Draw level 0 icon (slim)
+                if self.level_zero_icon:
+                    surface.blit(self.level_zero_icon, (bar_x, personality_y))
+            else:
+                # Draw visual progress bars (level number of bars)
+                for i in range(level):
+                    if self.progress_bar:
+                        surface.blit(self.progress_bar, (bar_x + i * 18, personality_y))
+
+            personality_y += 25
+
+        # Draw conversation section (right side)
+        conv_x = window_x + info_width + 40
+        conv_y = window_y + 20
+        conv_width = window_width - info_width - 60
+        conv_height = window_height - 120
+
+        # Draw conversation box background
+        pygame.draw.rect(surface, (40, 40, 40), (conv_x, conv_y, conv_width, conv_height))
+        pygame.draw.rect(surface, LIGHT_GRAY, (conv_x, conv_y, conv_width, conv_height), 2)
+
+        # Draw messages as bubbles
+        message_y = conv_y + 10
+        max_visible_messages = 10
+        messages_to_show = self.messages[-max_visible_messages:]
+
+        # Add pending response if available
+        if self.pending_response:
+            self.messages.append((self.suspect["name"], self.pending_response))
+            self.pending_response = None
+            messages_to_show = self.messages[-max_visible_messages:]
+
+            # Generate snippet for logs in background thread
+            if self.logs_modal:
+                thread = threading.Thread(
+                    target=self.logs_modal.generate_snippet_for_suspect,
+                    args=(self.suspect["name"], self)
+                )
+                thread.daemon = True
+                thread.start()
+
+        for speaker, message in messages_to_show:
+            is_player = speaker == "You"
+
+            # Determine bubble position and color first
+            if is_player:
+                # Player message - right side, blue
+                bubble_color = (100, 150, 255)
+                text_color = BLACK
+                left_margin = 100  # Player messages on right, so large left margin
+                right_margin = 5  # Minimal right padding for player messages
+            else:
+                # Suspect message - left side, gray with padding on right
+                bubble_color = (80, 80, 80)
+                text_color = WHITE
+                left_margin = 20
+                right_margin = 100  # Received messages have padding on right
+
+            # Wrap text based on actual rendered width with dynamic bubble width
+            bubble_padding = 10
+            line_height = 20
+            max_bubble_width = conv_width - left_margin - right_margin
+            min_bubble_width = 100  # Minimum width for bubble
+
+            # First pass: try to fit text with max width
+            words = message.split()
+            lines = []
+            current_line = ""
+            max_line_width = 0
+
+            for word in words:
+                test_line = current_line + word + " " if current_line else word + " "
+                test_surface = self.text_font.render(test_line.rstrip(), True, text_color)
+                if test_surface.get_width() > max_bubble_width - (bubble_padding * 2) and current_line:
+                    line_surface = self.text_font.render(current_line.rstrip(), True, text_color)
+                    max_line_width = max(max_line_width, line_surface.get_width())
+                    lines.append(current_line.rstrip())
+                    current_line = word + " "
+                else:
+                    current_line = test_line
+
+            if current_line:
+                line_surface = self.text_font.render(current_line.rstrip(), True, text_color)
+                max_line_width = max(max_line_width, line_surface.get_width())
+                lines.append(current_line.rstrip())
+
+            # Calculate dynamic bubble width based on content
+            dynamic_width = max_line_width + (bubble_padding * 2)
+            bubble_width = max(min_bubble_width, min(dynamic_width, max_bubble_width))
+
+            # Calculate bubble size
+            bubble_height = len(lines) * line_height + bubble_padding * 2
+
+            # Determine bubble x position
+            if is_player:
+                # Player messages on right side - close to the right edge
+                bubble_x = conv_x + conv_width - bubble_width - 20
+            else:
+                # Suspect messages on left side
+                bubble_x = conv_x + left_margin
+
+            # Draw bubble background
+            pygame.draw.rect(surface, bubble_color, (bubble_x, message_y, bubble_width, bubble_height), border_radius=10)
+            pygame.draw.rect(surface, LIGHT_GRAY, (bubble_x, message_y, bubble_width, bubble_height), 2, border_radius=10)
+
+            # Draw message text inside bubble
+            text_y = message_y + bubble_padding
+            for line in lines:
+                line_text = self.text_font.render(line, True, text_color)
+                if is_player:
+                    # Right-align player messages
+                    text_x = bubble_x + bubble_width - bubble_padding - line_text.get_width()
+                else:
+                    # Left-align suspect messages
+                    text_x = bubble_x + bubble_padding
+                surface.blit(line_text, (text_x, text_y))
+                text_y += line_height
+
+            message_y += bubble_height + 10
+
+        # Draw loading bubble if currently loading
+        if self.is_loading:
+            self.loading_timer += 1
+            if self.loading_timer >= 8:  # Change dots every 8 frames
+                self.loading_timer = 0
+                self.loading_dots_frame = (self.loading_dots_frame + 1) % 3
+
+            # Create loading bubble
+            dots = [".", "..", "..."]
+            loading_text = dots[self.loading_dots_frame]
+
+            # Calculate bubble size for loading message
+            bubble_padding = 10
+            line_height = 20
+            loading_surface = self.text_font.render(loading_text, True, WHITE)
+            bubble_height = line_height + bubble_padding * 2
+            bubble_width = loading_surface.get_width() + bubble_padding * 2
+
+            # Position loading bubble on left (suspect side)
+            left_margin = 20
+            bubble_x = conv_x + left_margin
+            bubble_color = (80, 80, 80)
+
+            # Draw loading bubble background
+            pygame.draw.rect(surface, bubble_color, (bubble_x, message_y, bubble_width, bubble_height), border_radius=10)
+            pygame.draw.rect(surface, LIGHT_GRAY, (bubble_x, message_y, bubble_width, bubble_height), 2, border_radius=10)
+
+            # Draw loading dots inside bubble
+            text_y = message_y + bubble_padding
+            surface.blit(loading_surface, (bubble_x + bubble_padding, text_y))
+
+        # Draw input box
+        input_y = window_y + window_height - 60
+        pygame.draw.rect(surface, (60, 60, 60), (conv_x, input_y, conv_width, 40))
+        pygame.draw.rect(surface, LIGHT_GRAY, (conv_x, input_y, conv_width, 40), 2)
+
+        # Draw input text (disabled while loading)
+        if not self.is_loading:
+            input_text = self.input_font.render(self.user_input, True, WHITE)
+            surface.blit(input_text, (conv_x + 10, input_y + 8))
+        else:
+            # Show placeholder while loading
+            placeholder_text = self.input_font.render("(waiting for response...)", True, (100, 100, 100))
+            surface.blit(placeholder_text, (conv_x + 10, input_y + 8))
+
+        # Draw close instruction
+        close_text = self.text_font.render("Press ESC to close", True, LIGHT_GRAY)
+        close_x = window_x + (window_width - close_text.get_width()) // 2
+        close_y = window_y + window_height - 25
+        surface.blit(close_text, (close_x, close_y))
+
+    def toggle(self):
+        """Toggle conversation screen"""
+        self.is_open = not self.is_open
+        if self.is_open:
+            self.user_input = ""
+            # Only initialize conversation on first opening
+            if not self.conversation_started:
+                self.messages = []
+                self.conversation_started = True
+                # Send first message asynchronously if not cached
+                if self.opening_statement is None:
+                    self.is_loading = True
+                    self.loading_timer = 0
+                    self.loading_dots_frame = 0
+                    thread = threading.Thread(target=self._fetch_opening_statement_async)
+                    thread.daemon = True
+                    thread.start()
+                else:
+                    # Use cached opening statement
+                    self.messages.append((self.suspect["name"], self.opening_statement))
+            # If reopening, conversation history persists (no clearing)
+
+    def _fetch_opening_statement_async(self):
+        """Fetch opening statement from agent in background thread"""
+        try:
+            self.opening_statement = self.agent.get_opening_statement()
+            self.pending_response = self.opening_statement
+        except Exception as e:
+            self.pending_response = f"Error: {str(e)}"
+        finally:
+            self.is_loading = False
+
+    def _send_first_message(self):
+        """Send the first greeting message from the suspect"""
+        # Use cached opening statement, or generate and cache if not available
+        if self.opening_statement is None:
+            self.opening_statement = self.agent.get_opening_statement()
+        self.messages.append((self.suspect["name"], self.opening_statement))
+
+
 class InfoModal:
-    def __init__(self, title, content, master_data):
+    def __init__(self, title, content, master_data, conversation_screens=None):
         self.title = title
         self.content = content
         self.master_data = master_data
+        self.conversation_screens = conversation_screens or {}
         self.is_open = False
+
+        # Cache for generated snippets (maps suspect_name -> list of snippets)
+        self.snippet_cache = {}
 
         # Modal dimensions
         self.width = int(SCREEN_WIDTH * 0.75)  # 75% of screen width
@@ -123,10 +503,65 @@ class InfoModal:
         return facts
 
     def generate_logs_content(self):
-        """Generate investigation logs content"""
+        """Generate investigation logs content with cached AI-generated snippets"""
         logs = []
-        logs.append("No interviews conducted yet.")
+
+        # Check if there are any messages across all conversation screens
+        has_messages = False
+        for suspect_name, conv_screen in self.conversation_screens.items():
+            if conv_screen.messages:
+                has_messages = True
+                logs.append(f"\n--- Interview with {suspect_name} ---")
+
+                # Use cached snippets (can be multiple from different sessions)
+                if suspect_name in self.snippet_cache:
+                    for snippet in self.snippet_cache[suspect_name]:
+                        logs.append(f"  • {snippet}")
+                else:
+                    logs.append(f"  • (generating...)")
+
+        if not has_messages:
+            logs.append("No interviews conducted yet.")
+
         return logs
+
+    def generate_snippet_for_suspect(self, suspect_name, conv_screen):
+        """Generate a single sentence snippet asynchronously"""
+        from openai import OpenAI
+        import os
+
+        conversation_text = "\n".join([f"{speaker}: {msg}" for speaker, msg in conv_screen.messages])
+
+        snippet_prompt = f"""Analyze this interview with {suspect_name} and write ONE short suspicious or notable observation (5-7 words max).
+Example: "David seemed nervous about Emma"
+
+Transcript:
+{conversation_text}
+
+Observation:"""
+
+        try:
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "user", "content": snippet_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=50
+            )
+            snippet = response.choices[0].message.content.strip()
+
+            # Initialize list for this suspect if not already done
+            if suspect_name not in self.snippet_cache:
+                self.snippet_cache[suspect_name] = []
+
+            # Append snippet to list
+            self.snippet_cache[suspect_name].append(snippet)
+        except Exception as e:
+            if suspect_name not in self.snippet_cache:
+                self.snippet_cache[suspect_name] = []
+            self.snippet_cache[suspect_name].append("(Unable to generate snippet)")
 
     def draw(self, surface):
         """Draw the modal"""
@@ -147,10 +582,11 @@ class InfoModal:
         else:
             lines = self.content.split("\n")
 
-        # Calculate height based on content
+        # Calculate height based on content with max of 75% window height
         line_height = 25
-        content_height = len(lines) * line_height + 150  # Increased padding from 80 to 150
-        self.height = min(content_height, SCREEN_HEIGHT - 150)
+        content_height = len(lines) * line_height + 150  # Padding for title and spacing
+        max_height = int(SCREEN_HEIGHT * 0.75)  # Max 75% of window height
+        self.height = min(content_height, max_height)
 
         # Resize modal background
         self.modal_bg = pygame.transform.scale(
@@ -253,6 +689,11 @@ class MenuButton:
         return self.is_hovered
 
 
+    def get_rect(self):
+        """Get the rectangle for this button"""
+        return pygame.Rect(self.x, self.y, self.width, self.height)
+
+
 class CharacterCard:
     def __init__(self, suspect_data, x, y):
         self.suspect = suspect_data
@@ -279,6 +720,13 @@ class CharacterCard:
         """Check if mouse is hovering over this card"""
         mouse_x, mouse_y = mouse_pos
         self.is_hovered = (
+            self.x <= mouse_x <= self.x + self.width and self.y <= mouse_y <= self.y + self.height
+        )
+
+    def is_clicked(self, mouse_pos):
+        """Check if card is clicked"""
+        mouse_x, mouse_y = mouse_pos
+        return (
             self.x <= mouse_x <= self.x + self.width and self.y <= mouse_y <= self.y + self.height
         )
 
@@ -394,9 +842,12 @@ def main():
     facts_modal = InfoModal("FACTS", "", master)
     logs_modal = InfoModal("LOGS", "", master)
 
-    # Create character cards (excluding victim)
+    # Create character cards and conversation screens (excluding victim)
+    from suspect_agent import SuspectAgent
+
     card_positions = get_card_positions()
     cards = []
+    conversation_screens = {}
     card_index = 0
 
     for suspect_name in sorted(master.suspects.keys()):
@@ -405,7 +856,28 @@ def main():
             x, y = card_positions[card_index]
             card = CharacterCard(suspect, x, y)
             cards.append(card)
+
+            # Create conversation screen and agent for this suspect
+            if not suspect["is_victim"]:
+                # Get relationships for this suspect
+                relationships = {}
+                for pair, rel_type in master.relationships.items():
+                    names = pair.split("_")
+                    if suspect_name in names:
+                        other_name = names[0] if names[1] == suspect_name else names[1]
+                        relationships[other_name] = rel_type
+
+                # Create agent
+                agent = SuspectAgent(suspect, relationships, master.case_state, master.clues)
+
+                # Create conversation screen (logs_modal will be added after)
+                conv_screen = ConversationScreen(suspect, agent, SCREEN_WIDTH, SCREEN_HEIGHT, logs_modal)
+                conversation_screens[suspect_name] = conv_screen
+
             card_index += 1
+
+    # Update logs modal with conversation screens
+    logs_modal.conversation_screens = conversation_screens
 
     # Print case info to terminal
     print("=" * 80)
@@ -419,6 +891,8 @@ def main():
 
     # Main game loop
     running = True
+    active_conversation = None  # Track which suspect's conversation is open
+
     while running:
         clock.tick(FPS)
 
@@ -430,17 +904,36 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    # Close modals if open, otherwise exit
-                    if facts_modal.is_open:
-                        facts_modal.toggle()
-                    elif logs_modal.is_open:
-                        logs_modal.toggle()
-                    else:
-                        running = False
+                # Pass input to active conversation screen if one is open
+                if active_conversation:
+                    conversation_screens[active_conversation].handle_input(event)
+                    # Check if conversation was closed
+                    if not conversation_screens[active_conversation].is_open:
+                        active_conversation = None
+                else:
+                    # Handle general keyboard input
+                    if event.key == pygame.K_ESCAPE:
+                        # Close modals if open, otherwise exit
+                        if facts_modal.is_open:
+                            facts_modal.toggle()
+                        elif logs_modal.is_open:
+                            logs_modal.toggle()
+                        else:
+                            running = False
+            elif event.type == pygame.TEXTINPUT:
+                # Pass text input to active conversation screen
+                if active_conversation:
+                    conversation_screens[active_conversation].handle_input(event)
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                # Handle button clicks
-                if facts_modal.is_open:
+                # Handle button clicks - prioritize conversation screen
+                if active_conversation:
+                    # Check if click is outside the conversation window
+                    window_rect = conversation_screens[active_conversation].get_window_rect()
+                    if not window_rect.collidepoint(mouse_pos):
+                        # Close conversation screen
+                        conversation_screens[active_conversation].toggle()
+                        active_conversation = None
+                elif facts_modal.is_open:
                     # Check if close button is clicked
                     if facts_modal.is_close_clicked(mouse_pos):
                         facts_modal.toggle()
@@ -450,6 +943,7 @@ def main():
                         logs_modal.toggle()
                 else:
                     # Check menu button clicks
+                    button_clicked = False
                     for button in menu_buttons:
                         if button.is_clicked(mouse_pos):
                             if button.label == "FACTS":
@@ -458,6 +952,19 @@ def main():
                                 logs_modal.toggle()
                             elif button.label == "ACCUSE":
                                 pass  # TODO: Implement accuse functionality
+                            button_clicked = True
+                            break
+
+                    # Check character card clicks if no button was clicked
+                    if not button_clicked:
+                        for i, card in enumerate(cards):
+                            if card.is_clicked(mouse_pos):
+                                # Open conversation screen for this suspect
+                                suspect_name = card.suspect["name"]
+                                if suspect_name in conversation_screens:
+                                    active_conversation = suspect_name
+                                    conversation_screens[suspect_name].toggle()
+                                break
 
         # Update hover states
         for card in cards:
@@ -485,6 +992,10 @@ def main():
         # Draw modals on top
         facts_modal.draw(screen)
         logs_modal.draw(screen)
+
+        # Draw active conversation screen
+        if active_conversation:
+            conversation_screens[active_conversation].draw(screen)
 
         # Update display
         pygame.display.flip()

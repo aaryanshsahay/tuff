@@ -1,5 +1,6 @@
 import os
 import json
+import random
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -37,10 +38,28 @@ class SuspectAgent:
         self.known_clues = [c for c in self.clues if c.get("known_by") == self.name]
 
         # Initialize personality levels (0-5 scale)
-        # Map base traits to levels - start at 3 (neutral)
-        self.personality_levels = {
-            trait: 3 for trait in self.base_personality_traits
-        }
+        # Random values with bias toward middle (3) - extreme values very rare
+        self.personality_levels = {}
+        for trait in self.base_personality_traits:
+            # Use weighted distribution: more common in middle (2-4 range)
+            # Extreme values (0, 5) are very rare
+            rand = random.random()
+            if rand < 0.05:  # 5% chance of extreme low (0)
+                level = 0
+            elif rand < 0.15:  # 10% chance of low (1)
+                level = 1
+            elif rand < 0.35:  # 20% chance of below neutral (2)
+                level = 2
+            elif rand < 0.65:  # 30% chance of neutral (3)
+                level = 3
+            elif rand < 0.85:  # 20% chance of above neutral (4)
+                level = 4
+            elif rand < 0.95:  # 10% chance of high (5)
+                level = 5
+            else:  # 5% chance of extreme high (would be 5, but capped)
+                level = 5
+
+            self.personality_levels[trait] = level
 
         # Build the system prompt
         self.system_prompt = self._build_system_prompt()
@@ -262,3 +281,28 @@ Return ONLY the JSON object."""
     def get_personality_state(self):
         """Get the current personality state"""
         return self.personality_levels.copy()
+
+    def get_opening_statement(self):
+        """Generate an opening statement from the suspect"""
+        opening_prompt = f"""Generate a brief opening statement (1-2 sentences) for {self.name} when they are first asked to be interviewed about the murder.
+
+The suspect should:
+- Acknowledge they know what this is about
+- Show their personality through how they react (nervous, confident, defensive, etc.)
+- Be realistic and natural, not overly formal
+
+Keep it to 1-2 sentences max. Return ONLY the statement, no extra text."""
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "user", "content": opening_prompt}
+                ],
+                temperature=0.8,
+                max_tokens=100
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            # Fallback if API fails
+            return f"I understand you wanted to talk to me about what happened."
