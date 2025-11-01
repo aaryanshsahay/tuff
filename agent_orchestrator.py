@@ -229,6 +229,7 @@ class AgentOrchestrator:
             "relationships_context": self._get_relationship_context(suspect_name),
             "likely_questions": self._predict_likely_questions(suspect_name),
             "defensive_topics": self._identify_defensive_topics(suspect_name),
+            "hintable_facts": self._generate_hintable_facts(suspect_name),
         }
         return briefing
 
@@ -323,6 +324,70 @@ class AgentOrchestrator:
             defensive.append(false_motive)
 
         return defensive
+
+    def _generate_hintable_facts(self, suspect_name):
+        """
+        Use LLM to generate 2-3 contextually relevant hintable facts for this suspect.
+        These are facts they know about and might reveal if questioned correctly.
+        """
+        suspect = self.suspects[suspect_name]
+        role = self._determine_role(suspect_name)
+
+        # Build context about this suspect
+        context = f"""
+SUSPECT: {suspect_name} ({suspect['age']} year old {suspect['gender']} {suspect['occupation']})
+ROLE: {role.upper()}
+VICTIM: {self.victim}
+MURDERER: {self.murderer}
+MOTIVE: {self.case_state.get('murderer_motive', 'unknown')}
+
+RELATIONSHIPS WITH OTHER SUSPECTS:
+"""
+        for pair, rel_type in self.relationships.items():
+            if suspect_name in pair:
+                other = pair.split("_")[0] if pair.split("_")[1] == suspect_name else pair.split("_")[1]
+                context += f"  - {other}: {rel_type}\n"
+
+        context += f"\nKNOWN CLUES:\n"
+        for clue in self.clues:
+            if clue.get("known_by") == suspect_name:
+                context += f"  - {clue.get('clue', '')}\n"
+
+        prompt = f"""You are a detective briefing assistant. Generate 2-3 specific, hintable facts that {suspect_name} might reveal during interrogation if the detective asks the right questions or treats them well.
+
+{context}
+
+These hintable facts should be:
+1. CONTEXTUALLY RELEVANT: Based on their relationships, role, and what they know
+2. SPECIFIC: Not vague - include names, times, or concrete details when possible
+3. REVEALABLE: Things they would naturally know and might slip up about
+4. USEFUL: Facts that would help solve the mystery (clues, observations, suspicious behavior)
+
+For a {role}:
+- If MURDERER: Include details they might slip up about (location, time, interactions with victim)
+- If INNOCENT: Include gossip about others, suspicious observations, relationship conflicts
+
+Return ONLY a JSON array of 2-3 facts (strings), no other text. Example format:
+["saw Lisa leave study at 11:45pm", "heard arguing between James and victim", "found key to study room"]
+"""
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.8,
+                max_tokens=300
+            )
+
+            import json
+            facts_json = response.choices[0].message.content.strip()
+            hintable_facts = json.loads(facts_json)
+            return hintable_facts if isinstance(hintable_facts, list) else []
+        except Exception as e:
+            # Fallback: return empty list if generation fails
+            return []
 
     def generate_orchestration_prompt(self, suspect_name):
         """

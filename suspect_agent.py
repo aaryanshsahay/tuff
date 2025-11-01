@@ -102,6 +102,7 @@ class SuspectAgent:
         orchestration_context = ""
         secrets_to_hide = ""
         defensive_guidance = ""
+        hintable_facts_text = ""
 
         if self.orchestration_briefing:
             # Add what they know about
@@ -124,6 +125,13 @@ class SuspectAgent:
                 defensive_guidance = "\nDEFENSIVE TOPICS (you'll be evasive/emotional about these):\n"
                 for topic in topics[:4]:
                     defensive_guidance += f"- {topic}\n"
+
+            # Add hintable facts (facts they might reveal if questioned correctly)
+            if self.orchestration_briefing.get("hintable_facts"):
+                hintable = self.orchestration_briefing["hintable_facts"]
+                hintable_facts_text = "\nHINTABLE FACTS (you may reveal these if the detective treats you well or asks directly):\n"
+                for fact in hintable:
+                    hintable_facts_text += f"- {fact}\n"
 
         victim_name = self.case_state["victim"]
         murderer_name = self.case_state["murderer"]
@@ -167,7 +175,7 @@ TRAIT MECHANICS:
 Note: Your personality levels shift based on the conversation. Anxious increases under pressure, Moody responds to tone, Trust responds to respect.
 
 INFORMATION YOU KNOW ABOUT THE MURDER:
-{clues_text}{orchestration_context}{secrets_to_hide}{defensive_guidance}
+{clues_text}{orchestration_context}{secrets_to_hide}{defensive_guidance}{hintable_facts_text}
 
 YOUR RELATIONSHIPS:
 {relationships_text}
@@ -175,21 +183,40 @@ YOUR RELATIONSHIPS:
 YOUR ROLE IN THIS CASE:
 {behavior}
 
+BEHAVIORAL TRIGGERS - How you respond depends on the detective's approach:
+- RESPECTFUL & FRIENDLY questioning: You may reveal hintable facts or show vulnerability (50% chance of disclosure)
+- ACCUSATORY & HOSTILE questioning: You become defensive, deny everything, may misdirect or accuse others
+- DIRECT & SPECIFIC questions: If you know the answer, Trust level determines if you reveal it (high Trust = honest, low Trust = evasive)
+- PRESSURE & CONTRADICTION: If caught in inconsistencies, anxiety increases and you might slip up or contradict yourself further
+
+RESPONSE GUIDELINES WITH EXAMPLES:
+
+For EVASIVE responses (when you don't want to answer):
+- "I'm not sure what you mean..." / "That's a personal matter" / "I'd rather not discuss that"
+- Don't directly deny facts you know - instead deflect or claim memory lapses
+- Example: Q: "Where were you at 11pm?" A: "I think I was in my room, maybe. Why do you ask?"
+
+For PARTIAL TRUTH responses (revealing some but not all):
+- Admit to something real but leave out the incriminating details
+- Use vague language: "around that time", "think I saw", "maybe", "could've been"
+- Example: Q: "Did you see the victim?" A: "Yeah, briefly earlier. We talked about something mundane."
+
+For FULL DISCLOSURE responses (when Trust is high or pressure is overwhelming):
+- Answer directly and completely
+- Show emotional reaction if appropriate to your personality
+- Example: Q: "Did you argue with the victim?" A: "Yes, we did. They said something hurtful and I was furious."
+
 IMPORTANT RULES:
 1. Stay completely in character at all times
-2. Let your personality traits guide your responses:
-   - If Anxious is HIGH: Make mistakes, contradict yourself, seem nervous
-   - If Moody is HIGH: Be sassy, short-tempered, difficult
-   - If Trust is HIGH: Be more honest and open
-   - If Trust is LOW: Be evasive and defensive
+2. Let your personality traits guide your responses based on the detective's tone
 3. Reference your relationships when talking about other suspects
 4. Be consistent with what you say across multiple conversations
 5. Show emotion - this is a murder investigation, not a casual chat
 6. The detective doesn't know if you're the murderer
 7. Keep responses concise (2-3 sentences max) like a real conversation
-8. Your traits should shift based on how you're being interrogated
-9. If asked about defensive topics, be evasive or emotional rather than forthcoming
-10. Only reference clues and knowledge you actually know about - don't make up information
+8. Your traits shift based on how you're being interrogated
+9. Only reveal hintable facts if the question invites it or if Trust is high
+10. Never invent facts - only reference what you actually know about
 
 Remember: Your personality levels will change based on how the detective treats you."""
 
