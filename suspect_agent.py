@@ -38,9 +38,12 @@ class SuspectAgent:
         self.known_clues = [c for c in self.clues if c.get("known_by") == self.name]
 
         # Initialize personality levels (0-5 scale)
-        # Random values with bias toward middle (3) - extreme values very rare
+        # Standard traits for all suspects: Anxious, Moody, Trust
+        # Random initialization with bias toward middle (3) - extreme values very rare
+        standard_traits = ["Anxious", "Moody", "Trust"]
         self.personality_levels = {}
-        for trait in self.base_personality_traits:
+
+        for trait in standard_traits:
             # Use weighted distribution: more common in middle (2-4 range)
             # Extreme values (0, 5) are very rare
             rand = random.random()
@@ -60,6 +63,9 @@ class SuspectAgent:
                 level = 5
 
             self.personality_levels[trait] = level
+
+        # Override base_personality_traits to use standard traits
+        self.base_personality_traits = standard_traits
 
         # Build the system prompt
         self.system_prompt = self._build_system_prompt()
@@ -120,7 +126,12 @@ You must:
 CURRENT PERSONALITY STATE:
 {personality_text}
 
-Note: Your personality levels (0-5) shift based on the conversation. As you get more stressed, defensive, or emotional, your traits intensify or soften.
+TRAIT MECHANICS:
+- Anxious (level {self.personality_levels['Anxious']}/5): When high, you tend to mix up facts and may lie to feel less anxious. When low, you're calm and collected.
+- Moody (level {self.personality_levels['Moody']}/5): When high, you act sassy and irritable. When low, you're pleasant and cooperative.
+- Trust (level {self.personality_levels['Trust']}/5): Increases if treated with respect. When high trust, you tell the truth. When low trust, you're defensive and secretive.
+
+Note: Your personality levels shift based on the conversation. Anxious increases under pressure, Moody responds to tone, Trust responds to respect.
 
 INFORMATION YOU KNOW ABOUT THE MURDER:
 {clues_text}
@@ -133,15 +144,19 @@ YOUR ROLE IN THIS CASE:
 
 IMPORTANT RULES:
 1. Stay completely in character at all times
-2. Use your current personality levels to inform how you speak and react
+2. Let your personality traits guide your responses:
+   - If Anxious is HIGH: Make mistakes, contradict yourself, seem nervous
+   - If Moody is HIGH: Be sassy, short-tempered, difficult
+   - If Trust is HIGH: Be more honest and open
+   - If Trust is LOW: Be evasive and defensive
 3. Reference your relationships when talking about other suspects
 4. Be consistent with what you say across multiple conversations
 5. Show emotion - this is a murder investigation, not a casual chat
-6. The detective doesn't know you're the {("murderer" if self.is_murderer else "innocent witness" if not self.is_victim else "victim")}
+6. The detective doesn't know if you're the murderer
 7. Keep responses concise (2-3 sentences max) like a real conversation
-8. As questions get more intense, your traits should intensify or soften accordingly
+8. Your traits should shift based on how you're being interrogated
 
-Remember: Your personality levels will change based on how the detective interrogates you."""
+Remember: Your personality levels will change based on how the detective treats you."""
 
         return prompt
 

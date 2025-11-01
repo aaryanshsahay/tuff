@@ -123,6 +123,14 @@ class ConversationScreen:
         # Track conversation sessions for multiple observations
         self.session_snippets = []  # List of snippets from different conversation sessions
 
+        # Track personality changes for animation
+        self.last_personality_state = agent.get_personality_state().copy()
+        self.personality_changes = {}  # Maps trait -> (change_value, frame_count)
+        self.change_animation_frames = 180  # 180 frames = 3 seconds at 60 FPS
+
+        # Scroll tracking for conversation
+        self.scroll_offset = 0  # How many messages to skip from the top
+
         # Fonts
         self.title_font = pygame.font.Font(None, 36)
         self.text_font = pygame.font.Font(None, 18)
@@ -154,7 +162,7 @@ class ConversationScreen:
 
 
     def handle_input(self, event):
-        """Handle keyboard input for conversation"""
+        """Handle keyboard input and scroll for conversation"""
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_RETURN:
                 # Send message
@@ -165,6 +173,8 @@ class ConversationScreen:
                     self.is_loading = True
                     self.loading_timer = 0
                     self.loading_dots_frame = 0
+                    # Reset scroll to bottom when new message sent
+                    self.scroll_offset = 0
 
                     # Start API call in background thread
                     thread = threading.Thread(target=self._fetch_response_async)
@@ -177,6 +187,11 @@ class ConversationScreen:
         elif event.type == pygame.TEXTINPUT:
             if len(self.user_input) < 100 and not self.is_loading:  # Limit input length
                 self.user_input += event.text
+        elif event.type == pygame.MOUSEWHEEL:
+            # Handle scroll wheel - scroll up to see older messages
+            self.scroll_offset += event.y  # Positive y = scroll up (show older), negative = scroll down (show newer)
+            max_scroll = len(self.messages) - 1
+            self.scroll_offset = max(0, min(self.scroll_offset, max_scroll))
 
     def _fetch_response_async(self):
         """Fetch response from agent in background thread"""
@@ -253,15 +268,44 @@ class ConversationScreen:
 
             # Draw visual progress bars (level number of bars) or icon for level 0
             bar_x = info_x + 140
-            if level == 0:
-                # Draw level 0 icon (slim)
-                if self.level_zero_icon:
-                    surface.blit(self.level_zero_icon, (bar_x, personality_y))
+
+            # Check if this trait is animating
+            is_animating = trait in self.personality_changes
+            if is_animating:
+                change_value, frames_left = self.personality_changes[trait]
+                # Blinking effect - blink every 15 frames (shows/hides for 0.25 seconds)
+                should_show = (frames_left % 30) < 15
+                self.personality_changes[trait] = (change_value, frames_left - 1)
+                if frames_left <= 0:
+                    del self.personality_changes[trait]
             else:
-                # Draw visual progress bars (level number of bars)
-                for i in range(level):
-                    if self.progress_bar:
-                        surface.blit(self.progress_bar, (bar_x + i * 18, personality_y))
+                should_show = True
+
+            if should_show:
+                if level == 0:
+                    # Draw level 0 icon (slim)
+                    if self.level_zero_icon:
+                        surface.blit(self.level_zero_icon, (bar_x, personality_y))
+                else:
+                    # Draw visual progress bars (level number of bars)
+                    for i in range(level):
+                        if self.progress_bar:
+                            surface.blit(self.progress_bar, (bar_x + i * 18, personality_y))
+
+            # Draw +1 or -1 indicator if animating
+            if is_animating and trait in self.personality_changes:
+                change_value, _ = self.personality_changes[trait]
+                change_text = f"{change_value:+d}"
+
+                # Color logic: Trust +1 is good (green), others +1 is bad (red)
+                if trait == "Trust":
+                    change_color = (100, 255, 100) if change_value > 0 else (255, 100, 100)
+                else:  # Anxious and Moody: +1 is bad (red), -1 is good (green)
+                    change_color = (255, 100, 100) if change_value > 0 else (100, 255, 100)
+
+                indicator_surface = self.text_font.render(change_text, True, change_color)
+                indicator_x = bar_x + (level * 18) + 5
+                surface.blit(indicator_surface, (indicator_x, personality_y - 5))
 
             personality_y += 25
 
@@ -275,16 +319,27 @@ class ConversationScreen:
         pygame.draw.rect(surface, (40, 40, 40), (conv_x, conv_y, conv_width, conv_height))
         pygame.draw.rect(surface, LIGHT_GRAY, (conv_x, conv_y, conv_width, conv_height), 2)
 
-        # Draw messages as bubbles
+        # Draw messages as bubbles with scroll support
         message_y = conv_y + 10
         max_visible_messages = 10
-        messages_to_show = self.messages[-max_visible_messages:]
+        # Calculate which messages to show based on scroll offset
+        start_index = max(0, len(self.messages) - max_visible_messages - self.scroll_offset)
+        messages_to_show = self.messages[start_index:start_index + max_visible_messages]
 
         # Add pending response if available
         if self.pending_response:
             self.messages.append((self.suspect["name"], self.pending_response))
             self.pending_response = None
             messages_to_show = self.messages[-max_visible_messages:]
+
+            # Detect personality changes and track them for animation
+            current_state = self.agent.get_personality_state()
+            for trait, new_level in current_state.items():
+                old_level = self.last_personality_state.get(trait, new_level)
+                change = new_level - old_level
+                if change != 0:
+                    self.personality_changes[trait] = (change, self.change_animation_frames)
+                self.last_personality_state[trait] = new_level
 
             # Generate snippet for logs in background thread
             if self.logs_modal:
@@ -476,6 +531,9 @@ class InfoModal:
         # Cache for generated snippets (maps suspect_name -> list of snippets)
         self.snippet_cache = {}
 
+        # Scroll tracking for logs
+        self.scroll_offset = 0
+
         # Modal dimensions
         self.width = int(SCREEN_WIDTH * 0.75)  # 75% of screen width
         self.x = (SCREEN_WIDTH - self.width) // 2
@@ -503,7 +561,7 @@ class InfoModal:
         return facts
 
     def generate_logs_content(self):
-        """Generate investigation logs content with cached AI-generated snippets"""
+        """Generate investigation logs content with cached AI-generated snippets (unique only)"""
         logs = []
 
         # Check if there are any messages across all conversation screens
@@ -513,10 +571,15 @@ class InfoModal:
                 has_messages = True
                 logs.append(f"\n--- Interview with {suspect_name} ---")
 
-                # Use cached snippets (can be multiple from different sessions)
+                # Use cached snippets (can be multiple from different sessions), removing duplicates
                 if suspect_name in self.snippet_cache:
+                    # Use set to track unique snippets, but preserve order
+                    seen_snippets = set()
                     for snippet in self.snippet_cache[suspect_name]:
-                        logs.append(f"  • {snippet}")
+                        # Only add if we haven't seen this exact snippet before
+                        if snippet not in seen_snippets:
+                            logs.append(f"  • {snippet}")
+                            seen_snippets.add(snippet)
                 else:
                     logs.append(f"  • (generating...)")
 
@@ -603,10 +666,14 @@ Observation:"""
         title_y = self.y + 50
         surface.blit(title_surface, (title_x, title_y))
 
-        # Draw content
+        # Draw content with scroll support
         content_x = self.x + 120
         content_y = self.y + 100
-        for line in lines:
+        max_visible_lines = int((self.height - 150) / line_height)  # Lines that fit in modal
+
+        # Calculate which lines to show based on scroll offset
+        start_line = min(self.scroll_offset, max(0, len(lines) - max_visible_lines))
+        for i, line in enumerate(lines[start_line:start_line + max_visible_lines]):
             if line.strip():
                 line_surface = self.text_font.render(line, True, LIGHT_GRAY)
                 surface.blit(line_surface, (content_x, content_y))
@@ -841,6 +908,9 @@ def main():
     # Create modals for FACTS and LOGS
     facts_modal = InfoModal("FACTS", "", master)
     logs_modal = InfoModal("LOGS", "", master)
+    # Initialize scroll offsets
+    facts_modal.scroll_offset = 0
+    logs_modal.scroll_offset = 0
 
     # Create character cards and conversation screens (excluding victim)
     from suspect_agent import SuspectAgent
@@ -924,6 +994,18 @@ def main():
                 # Pass text input to active conversation screen
                 if active_conversation:
                     conversation_screens[active_conversation].handle_input(event)
+            elif event.type == pygame.MOUSEWHEEL:
+                # Handle scroll wheel for conversation or modals
+                if active_conversation:
+                    conversation_screens[active_conversation].handle_input(event)
+                elif logs_modal.is_open:
+                    # Scroll logs
+                    logs_modal.scroll_offset += event.y
+                    logs_modal.scroll_offset = max(0, logs_modal.scroll_offset)
+                elif facts_modal.is_open:
+                    # Scroll facts
+                    facts_modal.scroll_offset += event.y
+                    facts_modal.scroll_offset = max(0, facts_modal.scroll_offset)
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 # Handle button clicks - prioritize conversation screen
                 if active_conversation:
