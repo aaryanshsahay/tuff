@@ -76,8 +76,21 @@ class SuspectAgent:
         # Build the system prompt
         self.system_prompt = self._build_system_prompt()
 
-    def _build_system_prompt(self):
-        """Build a detailed system prompt for this suspect"""
+    def _build_system_prompt(self, conversation_history=None):
+        """Build a detailed system prompt for this suspect
+
+        Args:
+            conversation_history: Optional conversation history to extract mentioned clues
+        """
+
+        # Build conversation context if history is provided
+        conversation_context = ""
+        if conversation_history and len(conversation_history) > 0:
+            conversation_context = "\n⚠️ CONVERSATION SO FAR:\n"
+            for msg in conversation_history:
+                role = "DETECTIVE" if msg.get("role") == "user" else "YOU"
+                content = msg.get("content", "")
+                conversation_context += f"{role}: {content}\n"
 
         relationships_text = "\n".join([
             f"- {suspect}: {rel}"
@@ -183,6 +196,18 @@ YOUR RELATIONSHIPS:
 YOUR ROLE IN THIS CASE:
 {behavior}
 
+{conversation_context}
+
+⚠️ CRITICAL RESPONSE RULES FOR THIS CONVERSATION:
+- Any evidence, facts, or clues that the detective has explicitly mentioned in the conversation above, you CANNOT completely deny or ignore
+- If the detective brings up something you know about, you must acknowledge it somehow (admit, reluctantly agree, show emotion, deflect to another topic - but not pure denial)
+- If caught in an obvious contradiction, acknowledge the discrepancy or explain the inconsistency - don't pretend it was never said
+- Your Trust level ({self.personality_levels.get('Trust', 3)}/5) determines HOW you respond:
+  * Trust 0-1: Deny reluctantly, deflect, show suspicion of the detective
+  * Trust 2-3: Admit partially or with hesitation, show defensive emotion
+  * Trust 4-5: Admit openly and honestly, show genuine emotion
+- Your personality shapes your tone, not your willingness to address what's been brought up
+
 BEHAVIORAL TRIGGERS - How you respond depends on the detective's approach:
 - RESPECTFUL & FRIENDLY questioning: You may reveal hintable facts or show vulnerability (50% chance of disclosure)
 - ACCUSATORY & HOSTILE questioning: You become defensive, deny everything, may misdirect or accuse others
@@ -250,8 +275,8 @@ Remember: Your personality levels will change based on how the detective treats 
             "content": question
         })
 
-        # Update system prompt with current personality levels
-        self.system_prompt = self._build_system_prompt()
+        # Update system prompt with current personality levels AND conversation context
+        self.system_prompt = self._build_system_prompt(self.conversation_history)
 
         # Get response from OpenAI
         messages_with_system = [

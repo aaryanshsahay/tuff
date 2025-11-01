@@ -98,7 +98,7 @@ class ConversationScreen:
 
                 # Send interaction to visualizer
                 if self.visualizer:
-                    self.visualizer.send_interaction(self.suspect["name"], duration=60)
+                    self.visualizer.send_interaction(self.suspect["name"], duration=180)
 
                 # Generate snippet for logs
                 if self.logs_modal:
@@ -160,7 +160,18 @@ class ConversationScreen:
 
                 # Send conversation trace to visualizer
                 if self.visualizer:
-                    self.visualizer.send_interaction(self.suspect["name"], duration=60)
+                    self.visualizer.send_interaction(self.suspect["name"], duration=180)
+
+                # Record response to orchestrator for feedback loop
+                if self.agent.orchestrator:
+                    current_personality = self.agent.get_personality_state()
+                    self.agent.orchestrator.record_suspect_response(
+                        self.suspect["name"],
+                        self.loading_message,
+                        response,
+                        current_personality
+                    )
+
         except Exception as e:
             self.pending_response = f"Error getting response: {str(e)}"
         finally:
@@ -303,6 +314,8 @@ class ConversationScreen:
             # Send personality update to visualizer
             if personality_updated and self.visualizer:
                 self.visualizer.send_personality_update(self.suspect["name"], current_state)
+                # Also show feedback loop to orchestrator
+                self.visualizer.send_feedback_to_orchestrator(self.suspect["name"])  # Default 180 frames = 3 seconds
 
             # Generate snippet for logs in background thread
             if self.logs_modal:

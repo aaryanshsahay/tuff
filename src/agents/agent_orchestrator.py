@@ -398,6 +398,108 @@ Return ONLY a JSON array of 2-3 facts (strings), no other text. Example format:
             # Fallback: return empty list if generation fails
             return []
 
+    def record_suspect_response(self, suspect_name, question, response, personality_state):
+        """
+        Record a suspect's response to the detective's question.
+        This tracks what they've said for consistency checking and narrative updates.
+        """
+        if suspect_name not in self.interrogation_history:
+            self.interrogation_history[suspect_name] = []
+
+        interaction_record = {
+            "question": question,
+            "response": response,
+            "personality_state": personality_state.copy() if personality_state else {},
+        }
+
+        self.interrogation_history[suspect_name].append(interaction_record)
+
+        # Extract key statements from response
+        if suspect_name not in self.suspect_statements:
+            self.suspect_statements[suspect_name] = []
+
+        # Store the full response as a statement
+        self.suspect_statements[suspect_name].append({
+            "statement": response,
+            "question_context": question,
+            "timestamp": len(self.interrogation_history[suspect_name])
+        })
+
+    def record_revealed_clue(self, clue_text):
+        """
+        Record that a clue has been revealed to the detective by a suspect.
+        This tracks what information has been disclosed.
+        """
+        self.revealed_clues.add(clue_text)
+
+    def get_contradiction_analysis(self, suspect_name):
+        """
+        Analyze a suspect's statements for contradictions.
+        Returns a dict with contradiction details if any are found.
+        """
+        if suspect_name not in self.suspect_statements:
+            return None
+
+        statements = self.suspect_statements[suspect_name]
+        if len(statements) < 2:
+            return None  # Need at least 2 statements to find contradictions
+
+        contradictions = {
+            "suspect_name": suspect_name,
+            "total_statements": len(statements),
+            "contradictions": [],
+            "consistency_score": 0.0  # 0.0 = contradictory, 1.0 = fully consistent
+        }
+
+        # Compare each statement with previous ones for obvious contradictions
+        for i, statement in enumerate(statements[1:], start=1):
+            # This is a simplified check - in a real system you'd use LLM to detect semantic contradictions
+            prev_statement = statements[i - 1]
+
+            # Check for keyword contradictions (very basic)
+            curr_keywords = set(statement["statement"].lower().split())
+            prev_keywords = set(prev_statement["statement"].lower().split())
+
+            # If current statement explicitly contradicts previous context
+            if "didn't" in statement["statement"].lower() and statement["question_context"] in prev_statement["statement"]:
+                contradictions["contradictions"].append({
+                    "previous": prev_statement["statement"],
+                    "current": statement["statement"],
+                    "context": statement["question_context"]
+                })
+
+        # Calculate consistency score
+        if contradictions["contradictions"]:
+            contradictions["consistency_score"] = max(0, 1.0 - len(contradictions["contradictions"]) * 0.25)
+        else:
+            contradictions["consistency_score"] = 1.0
+
+        return contradictions if contradictions["contradictions"] else None
+
+    def get_suspect_interrogation_history(self, suspect_name):
+        """
+        Get the complete interrogation history for a suspect.
+        Useful for seeing how they've responded across multiple questions.
+        """
+        if suspect_name not in self.interrogation_history:
+            return []
+        return self.interrogation_history[suspect_name]
+
+    def get_revealed_clues(self):
+        """Get all clues that have been revealed to the detective."""
+        return list(self.revealed_clues)
+
+    def get_orchestrator_state(self):
+        """
+        Get the current state of the orchestrator's tracking data.
+        Useful for debugging and understanding narrative state.
+        """
+        return {
+            "revealed_clues": list(self.revealed_clues),
+            "suspect_statements": {name: len(stmts) for name, stmts in self.suspect_statements.items()},
+            "interrogation_count": {name: len(hist) for name, hist in self.interrogation_history.items()},
+        }
+
     def generate_orchestration_prompt(self, suspect_name):
         """
         Generate a detailed orchestration prompt that guides a suspect agent's behavior

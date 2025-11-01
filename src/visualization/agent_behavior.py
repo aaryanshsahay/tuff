@@ -312,21 +312,23 @@ class ArrowConnection:
         self.arrow_type = arrow_type  # "briefing" or "feedback"
         self.is_active = False
         self.active_timer = 0
+        self.active_timer_duration = 0
         self.progress = 0
 
         # Colors based on type
         self.color = (200, 100, 255) if arrow_type == "briefing" else (100, 255, 200)
 
-    def set_active(self, duration=60):
-        """Activate the arrow"""
+    def set_active(self, duration=180):
+        """Activate the arrow (duration in frames, default 180 = 3 seconds at 60 FPS)"""
         self.is_active = True
         self.active_timer = duration
+        self.active_timer_duration = duration
 
     def update(self):
         """Update arrow animation"""
         if self.is_active:
             self.active_timer -= 1
-            self.progress = (60 - self.active_timer) / 60.0
+            self.progress = (self.active_timer_duration - self.active_timer) / self.active_timer_duration
             if self.active_timer <= 0:
                 self.is_active = False
 
@@ -532,8 +534,8 @@ class AgentBehaviorVisualizer:
             self.nodes[suspect_name].update_personality(personality_state)
             self.conversation_traces.append(ConversationTrace(self.nodes[suspect_name], "personality_update"))
 
-    def send_orchestrator_briefing(self, suspect_name, duration=60):
-        """Show orchestrator sending briefing to suspect"""
+    def send_orchestrator_briefing(self, suspect_name, duration=180):
+        """Show orchestrator sending briefing to suspect (default 180 frames = 3 seconds)"""
         self.orchestrator.set_active(duration)
 
         # Create arrow from orchestrator to suspect
@@ -546,8 +548,8 @@ class AgentBehaviorVisualizer:
             if conn.to_node.name == suspect_name:
                 conn.set_active(duration)
 
-    def send_feedback_to_orchestrator(self, suspect_name, duration=60):
-        """Show feedback from suspect to orchestrator"""
+    def send_feedback_to_orchestrator(self, suspect_name, duration=180):
+        """Show feedback from suspect to orchestrator (default 180 frames = 3 seconds)"""
         self.orchestrator.set_active(duration)
 
         # Create arrow from suspect to orchestrator (feedback)
@@ -644,15 +646,16 @@ class AgentBehaviorVisualizer:
 
     def _draw_info_panel(self, surface):
         """Draw information panel"""
-        info_y = self.start_y + self.height - 95
+        info_y = self.start_y + self.height - 120
         info_x = self.start_x + 10
 
-        font = pygame.font.Font(None, 10)
+        font_small = pygame.font.Font(None, 12)
+        font_large = pygame.font.Font(None, 14)
 
-        label_text = font.render("Personality: A(nxious) M(oody) T(rust) | Blinking = Change", True, (150, 150, 150))
+        label_text = font_large.render("Personality: A(nxious) M(oody) T(rust) | Blinking = Change", True, (200, 200, 200))
         surface.blit(label_text, (info_x, info_y))
 
-        legend_y = info_y + 15
+        legend_y = info_y + 18
         legend_items = [
             ("Friend", (100, 200, 100)),
             ("Romantic", (255, 100, 150)),
@@ -661,12 +664,15 @@ class AgentBehaviorVisualizer:
         ]
 
         for i, (label, color) in enumerate(legend_items):
-            x = info_x + (i % 2) * 100
-            y = legend_y + (i // 2) * 12
+            x = info_x + (i % 2) * 110
+            y = legend_y + (i // 2) * 16
 
-            pygame.draw.line(surface, color, (x, y + 4), (x + 10, y + 4), 2)
-            label_text = font.render(label, True, (150, 150, 150))
-            surface.blit(label_text, (x + 14, y))
+            pygame.draw.line(surface, color, (x, y + 5), (x + 12, y + 5), 3)
+            label_text = font_small.render(label, True, (200, 200, 200))
+            surface.blit(label_text, (x + 16, y))
 
-        info_text = font.render("Purple arrow=Briefing → agents | Cyan arrow=Feedback → orch", True, (150, 150, 150))
-        surface.blit(info_text, (info_x, legend_y + 30))
+        info_text = font_large.render("Purple arrow: Briefing → agents", True, (200, 100, 255))
+        surface.blit(info_text, (info_x, legend_y + 38))
+
+        info_text2 = font_large.render("Cyan arrow: Feedback → orchestrator", True, (100, 255, 200))
+        surface.blit(info_text2, (info_x, legend_y + 54))

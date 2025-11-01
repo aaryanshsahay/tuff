@@ -190,6 +190,11 @@ class MurderMysteryGame:
         # Update logs modal with conversation screens
         self.logs_modal.conversation_screens = self.conversation_screens
 
+        # Send initial orchestrator briefings to all suspects (visualization of game start)
+        if self.visualize_mode and self.visualizer:
+            for suspect_name in self.conversation_screens.keys():
+                self.visualizer.send_orchestrator_briefing(suspect_name)  # Default 180 frames = 3 seconds
+
         # Print case info to terminal
         print("=" * 80)
         print("MURDER MYSTERY - CASE BRIEFING")
