@@ -4,6 +4,7 @@ import os
 import threading
 from dotenv import load_dotenv
 from mystery_master import MurderMysteryMaster
+from agent_orchestrator import AgentOrchestrator
 
 load_dotenv()
 
@@ -22,6 +23,18 @@ cursor_image = pygame.Surface((23, 23), pygame.SRCALPHA)
 cursor_image.blit(cursor_sheet, (0, 0), (0, 0, 23, 23))
 # Set the cursor with hotspot at (0, 0)
 pygame.mouse.set_cursor(pygame.cursors.Cursor((0, 0), cursor_image))
+
+# Load map frame cursor
+map_frame_cursor = pygame.image.load("assets/dialogue_box/20240713dragonMapFrame.png")
+map_frame_cursor = pygame.transform.scale(map_frame_cursor, (40, 40))  # Adjust size as needed
+
+def set_default_cursor():
+    """Set cursor back to default arrow"""
+    pygame.mouse.set_cursor(pygame.cursors.Cursor((0, 0), cursor_image))
+
+def set_map_frame_cursor():
+    """Set cursor to map frame"""
+    pygame.mouse.set_cursor(pygame.cursors.Cursor((20, 20), map_frame_cursor))
 
 # Colors
 WHITE = (255, 255, 255)
@@ -713,6 +726,199 @@ Observation:"""
         return self.get_close_button_rect().collidepoint(mouse_pos)
 
 
+class AccusationResultsModal:
+    def __init__(self, accused_name, is_correct, master_data, orchestrator, conversation_screens):
+        self.accused_name = accused_name
+        self.is_correct = is_correct
+        self.master_data = master_data
+        self.orchestrator = orchestrator
+        self.conversation_screens = conversation_screens
+        self.is_open = False
+        self.scroll_offset = 0
+
+        # Modal dimensions
+        self.width = int(SCREEN_WIDTH * 0.75)
+        self.x = (SCREEN_WIDTH - self.width) // 2
+        self.y = 100
+
+        # Load background image
+        modal_bg = pygame.image.load("assets/dialogue_box/20240707dragon9SlicesA.png")
+        self.modal_bg = pygame.transform.scale(modal_bg, (self.width, 900))
+
+        # Load result images
+        if is_correct:
+            self.result_image = pygame.image.load("assets/progress/PNG/GUI-Kit-Pack-Free_37.png")
+        else:
+            self.result_image = pygame.image.load("assets/progress/PNG/GUI-Kit-Pack-Free_36.png")
+
+        # Scale result image
+        self.result_image = pygame.transform.scale(self.result_image, (200, 200))
+
+        # Create fonts
+        self.title_font = pygame.font.Font(None, 36)
+        self.subtitle_font = pygame.font.Font(None, 24)
+        self.text_font = pygame.font.Font(None, 18)
+
+    def generate_results_content(self):
+        """Generate detailed results content"""
+        lines = []
+        accused = self.master_data.suspects[self.accused_name]
+
+        if self.is_correct:
+            # Correct accusation
+            murderer = self.master_data.suspects[self.accused_name]
+            murderer_briefing = self.orchestrator.get_suspect_briefing(self.accused_name)
+
+            lines.append("═" * 70)
+            lines.append(f"✓ CORRECT - {self.accused_name.upper()} IS THE MURDERER")
+            lines.append("═" * 70)
+            lines.append("")
+            lines.append(f"Age: {murderer['age']} | Occupation: {murderer['occupation']}")
+            lines.append(f"Gender: {murderer['gender']}")
+            lines.append("")
+            lines.append("MOTIVE:")
+            lines.append(f"  {self.master_data.case_state['murderer_motive']}")
+            lines.append("")
+            lines.append("METHOD:")
+            lines.append(f"  {self.master_data.cause_of_death}")
+            lines.append(f"  Location: {self.master_data.crime_location}")
+            lines.append(f"  Time: {self.master_data.time_of_death}")
+            lines.append("")
+            lines.append("KEY EVIDENCE:")
+
+            # Extract secrets they should hide
+            secrets = murderer_briefing.get("what_they_should_hide", [])
+            if secrets:
+                for secret in secrets[:3]:
+                    lines.append(f"  • {secret}")
+            else:
+                lines.append(f"  • False alibi that couldn't hold under scrutiny")
+                lines.append(f"  • Suspicious behavior and nervousness")
+                lines.append(f"  • Motive connected to the victim")
+
+            lines.append("")
+            lines.append("CONFESSION:")
+            lines.append(f"  When confronted with the evidence, {self.accused_name}")
+            lines.append(f"  admitted to the crime. They have been arrested.")
+            lines.append("")
+            lines.append("CASE STATUS: SOLVED ✓")
+
+        else:
+            # Incorrect accusation
+            real_murderer = self.master_data.suspects[self.master_data.case_state["murderer"]]
+            accused_briefing = self.orchestrator.get_suspect_briefing(self.accused_name)
+
+            lines.append("═" * 70)
+            lines.append(f"✗ INCORRECT - {self.accused_name.upper()} IS INNOCENT")
+            lines.append("═" * 70)
+            lines.append("")
+            lines.append(f"Age: {accused['age']} | Occupation: {accused['occupation']}")
+            lines.append(f"Gender: {accused['gender']}")
+            lines.append("")
+            lines.append(f"THE REAL MURDERER: {self.master_data.case_state['murderer'].upper()}")
+            lines.append("")
+            lines.append("WHY YOU WERE MISLED:")
+            lines.append(f"  {self.accused_name} seemed suspicious because:")
+
+            # Extract what they should hide (innocent reasons)
+            secrets = accused_briefing.get("what_they_should_hide", [])
+            if secrets:
+                for secret in secrets[:2]:
+                    lines.append(f"    - {secret}")
+            else:
+                lines.append(f"    - Had conflicts with the victim")
+                lines.append(f"    - Nervous about unrelated secrets")
+
+            lines.append("")
+            lines.append("WHAT YOU MISSED:")
+            lines.append(f"  The true motive: {self.master_data.case_state['murderer_motive']}")
+            lines.append(f"  This motive pointed to {self.master_data.case_state['murderer']}")
+            lines.append(f"  Look for connections between the murderer and victim")
+            lines.append("")
+            lines.append("CASE STATUS: UNSOLVED - Investigation continues...")
+
+        return lines
+
+    def draw(self, surface):
+        """Draw the accusation results modal"""
+        if not self.is_open:
+            return
+
+        # Semi-transparent overlay
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay.set_alpha(200)
+        overlay.fill((0, 0, 0))
+        surface.blit(overlay, (0, 0))
+
+        lines = self.generate_results_content()
+
+        # Calculate height based on content
+        line_height = 22
+        content_height = len(lines) * line_height + 300  # Extra space for image and padding
+        max_height = int(SCREEN_HEIGHT * 0.85)
+        self.height = min(content_height, max_height)
+
+        # Resize modal background
+        self.modal_bg = pygame.transform.scale(
+            pygame.image.load("assets/dialogue_box/20240707dragon9SlicesA.png"),
+            (self.width, self.height),
+        )
+
+        # Draw modal background
+        surface.blit(self.modal_bg, (self.x, self.y))
+
+        # Draw result image at top center
+        image_x = self.x + (self.width - self.result_image.get_width()) // 2
+        image_y = self.y + 30
+        surface.blit(self.result_image, (image_x, image_y))
+
+        # Draw content with scroll support
+        content_x = self.x + 80
+        content_y = self.y + 260  # Below the image
+        max_visible_lines = int((self.height - 310) / line_height)
+
+        # Calculate which lines to show based on scroll offset
+        start_line = min(self.scroll_offset, max(0, len(lines) - max_visible_lines))
+        for i, line in enumerate(lines[start_line : start_line + max_visible_lines]):
+            if line.strip():
+                line_surface = self.text_font.render(line, True, LIGHT_GRAY)
+                surface.blit(line_surface, (content_x, content_y))
+            content_y += line_height
+
+        # Draw close button
+        close_button_rect = self.get_close_button_rect()
+        pygame.draw.rect(surface, (100, 50, 50), close_button_rect, 2)
+
+        # Draw X
+        x_font = pygame.font.Font(None, 28)
+        x_text = x_font.render("X", True, WHITE)
+        x_x = close_button_rect.centerx - x_text.get_width() // 2
+        x_y = close_button_rect.centery - x_text.get_height() // 2
+        surface.blit(x_text, (x_x, x_y))
+
+        # Draw close instruction
+        close_font = pygame.font.Font(None, 16)
+        close_text = close_font.render("Press ESC or click to close", True, LIGHT_GRAY)
+        close_x = self.x + (self.width - close_text.get_width()) // 2
+        close_y = self.y + self.height - 25
+        surface.blit(close_text, (close_x, close_y))
+
+    def get_close_button_rect(self):
+        """Get the rectangle for the close button"""
+        close_button_size = 30
+        close_x = self.x + self.width - close_button_size - 15
+        close_y = self.y + 15
+        return pygame.Rect(close_x, close_y, close_button_size, close_button_size)
+
+    def is_close_clicked(self, mouse_pos):
+        """Check if close button is clicked"""
+        return self.get_close_button_rect().collidepoint(mouse_pos)
+
+    def toggle(self):
+        """Toggle modal visibility"""
+        self.is_open = not self.is_open
+
+
 class MenuButton:
     def __init__(self, label, x, y, width, height):
         self.label = label
@@ -912,6 +1118,12 @@ def main():
     facts_modal.scroll_offset = 0
     logs_modal.scroll_offset = 0
 
+    # Create orchestrator for narrative coherence
+    orchestrator = AgentOrchestrator(master.case_state, master.suspects, master.relationships, master.clues)
+
+    # Placeholder for accusation results modal (will be created when needed)
+    accusation_modal = None
+
     # Create character cards and conversation screens (excluding victim)
     from suspect_agent import SuspectAgent
 
@@ -937,8 +1149,8 @@ def main():
                         other_name = names[0] if names[1] == suspect_name else names[1]
                         relationships[other_name] = rel_type
 
-                # Create agent
-                agent = SuspectAgent(suspect, relationships, master.case_state, master.clues)
+                # Create agent with orchestrator for narrative coherence
+                agent = SuspectAgent(suspect, relationships, master.case_state, master.clues, orchestrator)
 
                 # Create conversation screen (logs_modal will be added after)
                 conv_screen = ConversationScreen(suspect, agent, SCREEN_WIDTH, SCREEN_HEIGHT, logs_modal)
@@ -962,6 +1174,7 @@ def main():
     # Main game loop
     running = True
     active_conversation = None  # Track which suspect's conversation is open
+    in_accusation_mode = False  # Track if user is in accusation mode
 
     while running:
         clock.tick(FPS)
@@ -983,8 +1196,15 @@ def main():
                 else:
                     # Handle general keyboard input
                     if event.key == pygame.K_ESCAPE:
-                        # Close modals if open, otherwise exit
-                        if facts_modal.is_open:
+                        # Cancel accusation mode if active
+                        if in_accusation_mode:
+                            in_accusation_mode = False
+                            set_default_cursor()
+                        # Close accusation modal if open
+                        elif accusation_modal and accusation_modal.is_open:
+                            accusation_modal.toggle()
+                        # Close other modals if open, otherwise exit
+                        elif facts_modal.is_open:
                             facts_modal.toggle()
                         elif logs_modal.is_open:
                             logs_modal.toggle()
@@ -998,6 +1218,10 @@ def main():
                 # Handle scroll wheel for conversation or modals
                 if active_conversation:
                     conversation_screens[active_conversation].handle_input(event)
+                elif accusation_modal and accusation_modal.is_open:
+                    # Scroll accusation results
+                    accusation_modal.scroll_offset += event.y
+                    accusation_modal.scroll_offset = max(0, accusation_modal.scroll_offset)
                 elif logs_modal.is_open:
                     # Scroll logs
                     logs_modal.scroll_offset += event.y
@@ -1023,6 +1247,10 @@ def main():
                     # Check if close button is clicked
                     if logs_modal.is_close_clicked(mouse_pos):
                         logs_modal.toggle()
+                elif accusation_modal and accusation_modal.is_open:
+                    # Check if close button is clicked
+                    if accusation_modal.is_close_clicked(mouse_pos):
+                        accusation_modal.toggle()
                 else:
                     # Check menu button clicks
                     button_clicked = False
@@ -1033,7 +1261,8 @@ def main():
                             elif button.label == "LOGS":
                                 logs_modal.toggle()
                             elif button.label == "ACCUSE":
-                                pass  # TODO: Implement accuse functionality
+                                set_map_frame_cursor()
+                                in_accusation_mode = True
                             button_clicked = True
                             break
 
@@ -1041,11 +1270,30 @@ def main():
                     if not button_clicked:
                         for i, card in enumerate(cards):
                             if card.is_clicked(mouse_pos):
-                                # Open conversation screen for this suspect
-                                suspect_name = card.suspect["name"]
-                                if suspect_name in conversation_screens:
-                                    active_conversation = suspect_name
-                                    conversation_screens[suspect_name].toggle()
+                                if in_accusation_mode:
+                                    # Handle accusation
+                                    accused_name = card.suspect["name"]
+                                    is_correct = accused_name == master.case_state["murderer"]
+
+                                    # Reset cursor
+                                    set_default_cursor()
+                                    in_accusation_mode = False
+
+                                    # Create and show accusation results modal
+                                    accusation_modal = AccusationResultsModal(
+                                        accused_name,
+                                        is_correct,
+                                        master,
+                                        orchestrator,
+                                        conversation_screens
+                                    )
+                                    accusation_modal.toggle()
+                                else:
+                                    # Open conversation screen for this suspect
+                                    suspect_name = card.suspect["name"]
+                                    if suspect_name in conversation_screens:
+                                        active_conversation = suspect_name
+                                        conversation_screens[suspect_name].toggle()
                                 break
 
         # Update hover states
@@ -1074,6 +1322,8 @@ def main():
         # Draw modals on top
         facts_modal.draw(screen)
         logs_modal.draw(screen)
+        if accusation_modal:
+            accusation_modal.draw(screen)
 
         # Draw active conversation screen
         if active_conversation:

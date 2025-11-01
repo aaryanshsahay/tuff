@@ -10,7 +10,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 class SuspectAgent:
-    def __init__(self, suspect_data, relationships, case_state, clues=None):
+    def __init__(self, suspect_data, relationships, case_state, clues=None, orchestrator=None):
         """
         Initialize a suspect agent
 
@@ -33,9 +33,15 @@ class SuspectAgent:
         self.case_state = case_state
         self.clues = clues or []
         self.conversation_history = []
+        self.orchestrator = orchestrator
 
         # Find clues this suspect knows about
         self.known_clues = [c for c in self.clues if c.get("known_by") == self.name]
+
+        # Get orchestration briefing if orchestrator is available
+        self.orchestration_briefing = None
+        if self.orchestrator:
+            self.orchestration_briefing = self.orchestrator.get_suspect_briefing(self.name)
 
         # Initialize personality levels (0-5 scale)
         # Standard traits for all suspects: Anxious, Moody, Trust
@@ -92,6 +98,33 @@ class SuspectAgent:
         if self.known_clues:
             clues_text = "\n".join([f"- {c.get('clue', '')}" for c in self.known_clues])
 
+        # Build orchestration context if available
+        orchestration_context = ""
+        secrets_to_hide = ""
+        defensive_guidance = ""
+
+        if self.orchestration_briefing:
+            # Add what they know about
+            if self.orchestration_briefing.get("what_they_know"):
+                knowledge_items = self.orchestration_briefing["what_they_know"]
+                orchestration_context += "\nCONTEXTUAL KNOWLEDGE (things you're aware of):\n"
+                for item in knowledge_items[:5]:  # Limit to avoid token overflow
+                    orchestration_context += f"- {item}\n"
+
+            # Add what they should try to hide
+            if self.orchestration_briefing.get("what_they_should_hide"):
+                secrets = self.orchestration_briefing["what_they_should_hide"]
+                secrets_to_hide = "\nTHINGS YOU WILL TRY TO HIDE:\n"
+                for secret in secrets[:4]:  # Limit to avoid token overflow
+                    secrets_to_hide += f"- {secret}\n"
+
+            # Add defensive topics
+            if self.orchestration_briefing.get("defensive_topics"):
+                topics = self.orchestration_briefing["defensive_topics"]
+                defensive_guidance = "\nDEFENSIVE TOPICS (you'll be evasive/emotional about these):\n"
+                for topic in topics[:4]:
+                    defensive_guidance += f"- {topic}\n"
+
         victim_name = self.case_state["victim"]
         murderer_name = self.case_state["murderer"]
 
@@ -134,7 +167,7 @@ TRAIT MECHANICS:
 Note: Your personality levels shift based on the conversation. Anxious increases under pressure, Moody responds to tone, Trust responds to respect.
 
 INFORMATION YOU KNOW ABOUT THE MURDER:
-{clues_text}
+{clues_text}{orchestration_context}{secrets_to_hide}{defensive_guidance}
 
 YOUR RELATIONSHIPS:
 {relationships_text}
@@ -155,6 +188,8 @@ IMPORTANT RULES:
 6. The detective doesn't know if you're the murderer
 7. Keep responses concise (2-3 sentences max) like a real conversation
 8. Your traits should shift based on how you're being interrogated
+9. If asked about defensive topics, be evasive or emotional rather than forthcoming
+10. Only reference clues and knowledge you actually know about - don't make up information
 
 Remember: Your personality levels will change based on how the detective treats you."""
 
