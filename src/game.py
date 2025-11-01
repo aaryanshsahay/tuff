@@ -1,14 +1,23 @@
 """
 Main game logic and event handling
 """
+
 import pygame
 import sys
 import json
 import os
 from src.config import *
-from src.gui import CharacterCard, MenuButton, InfoModal, AccusationResultsModal, ConversationScreen
+from src.gui import (
+    CharacterCard,
+    MenuButton,
+    InfoModal,
+    AccusationResultsModal,
+    IntroductionModal,
+    ConversationScreen,
+)
 from src.agents import MurderMysteryMaster, SuspectAgent, AgentOrchestrator
 from src.utils import init_cursors, set_default_cursor, set_map_frame_cursor, ParallaxBackground
+from src.visualization import AgentBehaviorVisualizer
 
 
 def get_card_positions():
@@ -31,12 +40,19 @@ def get_card_positions():
 
 
 class MurderMysteryGame:
-    def __init__(self, test_mode=False):
+    def __init__(self, test_mode=False, visualize_mode=False):
         # Initialize pygame
         pygame.init()
 
+        # Adjust screen size if visualization is enabled
+        screen_width = SCREEN_WIDTH
+        screen_height = SCREEN_HEIGHT
+        if visualize_mode:
+            screen_width = SCREEN_WIDTH + 400  # Add 400px for visualization panel
+            screen_height = SCREEN_HEIGHT
+
         # Create screen
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        self.screen = pygame.display.set_mode((screen_width, screen_height))
         pygame.display.set_caption("Murder Mystery - The Mansion")
 
         # Clock for FPS
@@ -47,6 +63,8 @@ class MurderMysteryGame:
 
         # Game state
         self.test_mode = test_mode
+        self.visualize_mode = visualize_mode
+        self.visualizer = None  # Will be initialized if visualize_mode is True
         self.game_started = False  # Track if title screen has been passed
         self.master = None
         self.orchestrator = None
@@ -56,6 +74,7 @@ class MurderMysteryGame:
         self.facts_modal = None
         self.logs_modal = None
         self.accusation_modal = None
+        self.introduction_modal = None
         self.background = ParallaxBackground()
         self.active_conversation = None
         self.in_accusation_mode = False
@@ -86,14 +105,32 @@ class MurderMysteryGame:
             self.master.case_state,
             self.master.suspects,
             self.master.relationships,
-            self.master.clues
+            self.master.clues,
         )
 
         # Create modals
+        self.introduction_modal = IntroductionModal(self.master)
         self.facts_modal = InfoModal("FACTS", "", self.master)
         self.logs_modal = InfoModal("LOGS", "", self.master)
         self.facts_modal.scroll_offset = 0
         self.logs_modal.scroll_offset = 0
+
+        # Initialize visualization if enabled (BEFORE creating conversation screens)
+        if self.visualize_mode:
+            print("🎨 Starting agent behavior visualization...\n")
+            # Visualization panel on the right side
+            viz_start_x = SCREEN_WIDTH
+            viz_start_y = 0
+            viz_width = 400
+            viz_height = SCREEN_HEIGHT
+            self.visualizer = AgentBehaviorVisualizer(
+                self.master.suspects,
+                self.master.relationships,
+                viz_start_x,
+                viz_start_y,
+                viz_width,
+                viz_height
+            )
 
         # Create menu buttons (left side)
         button_width = 240
@@ -103,9 +140,7 @@ class MurderMysteryGame:
         button_spacing = 200
 
         self.menu_buttons = [
-            MenuButton(
-                "FACTS", button_x, button_y_start, button_width, button_height
-            ),
+            MenuButton("FACTS", button_x, button_y_start, button_width, button_height),
             MenuButton(
                 "LOGS", button_x, button_y_start + button_spacing, button_width, button_height
             ),
@@ -137,11 +172,17 @@ class MurderMysteryGame:
 
                     # Create agent with orchestrator for narrative coherence
                     agent = SuspectAgent(
-                        suspect, relationships, self.master.case_state, self.master.clues, self.orchestrator
+                        suspect,
+                        relationships,
+                        self.master.case_state,
+                        self.master.clues,
+                        self.orchestrator,
                     )
 
                     # Create conversation screen
-                    conv_screen = ConversationScreen(suspect, agent, SCREEN_WIDTH, SCREEN_HEIGHT, self.logs_modal)
+                    conv_screen = ConversationScreen(
+                        suspect, agent, SCREEN_WIDTH, SCREEN_HEIGHT, self.logs_modal, self.visualizer if self.visualize_mode else None
+                    )
                     self.conversation_screens[suspect_name] = conv_screen
 
                 card_index += 1
@@ -167,7 +208,7 @@ class MurderMysteryGame:
         test_case_path = os.path.join(os.path.dirname(__file__), "test_case.json")
 
         try:
-            with open(test_case_path, 'r') as f:
+            with open(test_case_path, "r") as f:
                 test_data = json.load(f)
 
             # Set the case state directly
@@ -192,9 +233,9 @@ class MurderMysteryGame:
                 # Handle title screen - space to continue
                 if not self.game_started and event.key == pygame.K_SPACE:
                     self.game_started = True
-                    # Open facts popup automatically
-                    if self.facts_modal:
-                        self.facts_modal.toggle()
+                    # Open introduction modal
+                    if self.introduction_modal:
+                        self.introduction_modal.toggle()
                     return True
 
                 # Pass input to active conversation screen if one is open
@@ -210,6 +251,9 @@ class MurderMysteryGame:
                         if self.in_accusation_mode:
                             self.in_accusation_mode = False
                             set_default_cursor()
+                        # Close introduction modal if open
+                        elif self.introduction_modal and self.introduction_modal.is_open:
+                            self.introduction_modal.toggle()
                         # Close accusation modal if open
                         elif self.accusation_modal and self.accusation_modal.is_open:
                             self.accusation_modal.toggle()
@@ -230,10 +274,18 @@ class MurderMysteryGame:
                 # Handle scroll wheel for conversation or modals
                 if self.active_conversation:
                     self.conversation_screens[self.active_conversation].handle_input(event)
+                elif self.introduction_modal and self.introduction_modal.is_open:
+                    # Scroll introduction
+                    self.introduction_modal.scroll_offset += event.y
+                    self.introduction_modal.scroll_offset = max(
+                        0, self.introduction_modal.scroll_offset
+                    )
                 elif self.accusation_modal and self.accusation_modal.is_open:
                     # Scroll accusation results
                     self.accusation_modal.scroll_offset += event.y
-                    self.accusation_modal.scroll_offset = max(0, self.accusation_modal.scroll_offset)
+                    self.accusation_modal.scroll_offset = max(
+                        0, self.accusation_modal.scroll_offset
+                    )
                 elif self.logs_modal.is_open:
                     # Scroll logs
                     self.logs_modal.scroll_offset += event.y
@@ -261,15 +313,27 @@ class MurderMysteryGame:
                 # If no button was clicked, handle other interactions
                 if not button_clicked:
                     # Handle close buttons on modals
-                    if self.facts_modal.is_open and self.facts_modal.is_close_clicked(mouse_pos):
+                    if (
+                        self.introduction_modal
+                        and self.introduction_modal.is_open
+                        and self.introduction_modal.is_close_clicked(mouse_pos)
+                    ):
+                        self.introduction_modal.toggle()
+                    elif self.facts_modal.is_open and self.facts_modal.is_close_clicked(mouse_pos):
                         self.facts_modal.toggle()
                     elif self.logs_modal.is_open and self.logs_modal.is_close_clicked(mouse_pos):
                         self.logs_modal.toggle()
-                    elif self.accusation_modal and self.accusation_modal.is_open and self.accusation_modal.is_close_clicked(mouse_pos):
+                    elif (
+                        self.accusation_modal
+                        and self.accusation_modal.is_open
+                        and self.accusation_modal.is_close_clicked(mouse_pos)
+                    ):
                         self.accusation_modal.toggle()
                     # Handle conversation screen
                     elif self.active_conversation:
-                        window_rect = self.conversation_screens[self.active_conversation].get_window_rect()
+                        window_rect = self.conversation_screens[
+                            self.active_conversation
+                        ].get_window_rect()
                         if not window_rect.collidepoint(mouse_pos):
                             self.conversation_screens[self.active_conversation].toggle()
                             self.active_conversation = None
@@ -292,7 +356,7 @@ class MurderMysteryGame:
                                         is_correct,
                                         self.master,
                                         self.orchestrator,
-                                        self.conversation_screens
+                                        self.conversation_screens,
                                     )
                                     self.accusation_modal.toggle()
                                 else:
@@ -315,6 +379,10 @@ class MurderMysteryGame:
         """Update game state"""
         self.background.update()
 
+        # Update visualization if enabled
+        if self.visualize_mode and self.visualizer:
+            self.visualizer.update()
+
     def draw(self):
         """Draw all game elements"""
         # If game hasn't started, show title screen
@@ -327,7 +395,7 @@ class MurderMysteryGame:
 
         # Draw title
         title_font = pygame.font.Font(None, 48)
-        title_text = title_font.render("THE MANSION - SELECT A SUSPECT TO INTERVIEW", True, WHITE)
+        title_text = title_font.render("Murder At Bly Manor", True, WHITE)
         title_x = (SCREEN_WIDTH - title_text.get_width()) // 2
         self.screen.blit(title_text, (title_x, 30))
 
@@ -340,6 +408,7 @@ class MurderMysteryGame:
             card.draw(self.screen)
 
         # Draw modals on top
+        self.introduction_modal.draw(self.screen)
         self.facts_modal.draw(self.screen)
         self.logs_modal.draw(self.screen)
         if self.accusation_modal:
@@ -348,6 +417,10 @@ class MurderMysteryGame:
         # Draw active conversation screen
         if self.active_conversation:
             self.conversation_screens[self.active_conversation].draw(self.screen)
+
+        # Draw visualization if enabled
+        if self.visualize_mode and self.visualizer:
+            self.visualizer.draw(self.screen)
 
         # Update display
         pygame.display.flip()
@@ -365,7 +438,9 @@ class MurderMysteryGame:
 
         # Load and render title with raster forge font
         try:
-            title_font = pygame.font.Font("assets/raster-forge-font/RasterForgeRegular-JpBgm.ttf", 96)
+            title_font = pygame.font.Font(
+                "assets/raster-forge-font/RasterForgeRegular-JpBgm.ttf", 96
+            )
             title_text = title_font.render("Murder at Bly Manor", True, WHITE)
         except:
             # Fallback if font not found

@@ -429,3 +429,137 @@ class AccusationResultsModal:
     def toggle(self):
         """Toggle modal visibility"""
         self.is_open = not self.is_open
+
+
+class IntroductionModal:
+    """Modal that shows the game introduction and brief"""
+    def __init__(self, master_data):
+        self.master_data = master_data
+        self.is_open = False
+        self.scroll_offset = 0
+
+        # Modal dimensions
+        self.width = int(SCREEN_WIDTH * 0.75)
+        self.x = (SCREEN_WIDTH - self.width) // 2
+        self.y = 100
+        self.height = 600
+
+        # Load background image
+        modal_bg = pygame.image.load("assets/dialogue_box/20240707dragon9SlicesA.png")
+        self.modal_bg = pygame.transform.scale(modal_bg, (self.width, self.height))
+
+        # Create fonts
+        self.title_font = pygame.font.Font(None, 40)
+        self.subtitle_font = pygame.font.Font(None, 26)
+        self.text_font = pygame.font.Font(None, 20)
+
+    def generate_intro_content(self):
+        """Generate the introduction content"""
+        lines = []
+
+        victim = self.master_data.victim
+        num_suspects = len([s for s in self.master_data.suspects.values() if not s["is_victim"]])
+        crime_location = self.master_data.crime_location
+        time_of_death = self.master_data.time_of_death
+
+        lines.append("")
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append("A MURDER AT BLY MANOR")
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append("")
+        lines.append(f"The body of {victim} was discovered in {crime_location}.")
+        lines.append(f"Time of death: {time_of_death}")
+        lines.append("")
+        lines.append(f"Six suspects were present at Bly Manor that night.")
+        lines.append("One of them is a murderer.")
+        lines.append("")
+        lines.append("YOUR MISSION:")
+        lines.append("• Interview all suspects carefully")
+        lines.append("• Analyze their relationships and motives")
+        lines.append("• Cross-reference their stories")
+        lines.append("• Identify inconsistencies and lies")
+        lines.append("• Determine who killed the victim")
+        lines.append("")
+        lines.append("FACTS about the case are available at any time.")
+        lines.append("LOGS record your investigation progress.")
+        lines.append("When you're certain, make your ACCUSATION.")
+        lines.append("")
+        lines.append("The truth awaits in the shadows...")
+        lines.append("")
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        return lines
+
+    def draw(self, surface):
+        """Draw the introduction modal"""
+        if not self.is_open:
+            return
+
+        # Semi-transparent overlay
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay.set_alpha(200)
+        overlay.fill((0, 0, 0))
+        surface.blit(overlay, (0, 0))
+
+        lines = self.generate_intro_content()
+
+        # Calculate height based on content
+        line_height = 28
+        content_height = len(lines) * line_height + 200
+        max_height = int(SCREEN_HEIGHT * 0.85)
+        self.height = min(content_height, max_height)
+
+        # Resize modal background
+        self.modal_bg = pygame.transform.scale(
+            pygame.image.load("assets/dialogue_box/20240707dragon9SlicesA.png"),
+            (self.width, self.height),
+        )
+
+        # Draw modal background
+        surface.blit(self.modal_bg, (self.x, self.y))
+
+        # Draw content with scroll support
+        content_x = self.x + 80
+        content_y = self.y + 50
+        max_visible_lines = int((self.height - 150) / line_height)
+
+        # Calculate which lines to show based on scroll offset
+        start_line = min(self.scroll_offset, max(0, len(lines) - max_visible_lines))
+        for i, line in enumerate(lines[start_line : start_line + max_visible_lines]):
+            if line.strip():
+                line_surface = self.text_font.render(line, True, LIGHT_GRAY)
+                surface.blit(line_surface, (content_x, content_y))
+            content_y += line_height
+
+        # Draw close button (X in top right)
+        close_button_rect = self.get_close_button_rect()
+        pygame.draw.rect(surface, (100, 50, 50), close_button_rect, 2)
+
+        # Draw X
+        x_font = pygame.font.Font(None, 28)
+        x_text = x_font.render("X", True, WHITE)
+        x_x = close_button_rect.centerx - x_text.get_width() // 2
+        x_y = close_button_rect.centery - x_text.get_height() // 2
+        surface.blit(x_text, (x_x, x_y))
+
+        # Draw close instruction
+        close_font = pygame.font.Font(None, 16)
+        close_text = close_font.render("Press ESC or click to close", True, LIGHT_GRAY)
+        close_x = self.x + (self.width - close_text.get_width()) // 2
+        close_y = self.y + self.height - 25
+        surface.blit(close_text, (close_x, close_y))
+
+    def get_close_button_rect(self):
+        """Get the rectangle for the close button"""
+        close_button_size = 30
+        close_x = self.x + self.width - close_button_size - 15
+        close_y = self.y + 15
+        return pygame.Rect(close_x, close_y, close_button_size, close_button_size)
+
+    def is_close_clicked(self, mouse_pos):
+        """Check if close button is clicked"""
+        return self.get_close_button_rect().collidepoint(mouse_pos)
+
+    def toggle(self):
+        """Toggle modal visibility"""
+        self.is_open = not self.is_open

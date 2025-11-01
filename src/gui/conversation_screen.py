@@ -8,13 +8,14 @@ from src.config import *
 
 
 class ConversationScreen:
-    def __init__(self, suspect_data, agent, screen_width, screen_height, logs_modal=None):
+    def __init__(self, suspect_data, agent, screen_width, screen_height, logs_modal=None, visualizer=None):
         self.suspect = suspect_data
         self.agent = agent
         self.is_open = False
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.logs_modal = logs_modal
+        self.visualizer = visualizer
 
         # Conversation history
         self.messages = []
@@ -94,6 +95,11 @@ class ConversationScreen:
             self.opening_statement = statement
             if statement:
                 self.messages.append((self.suspect["name"], statement))
+
+                # Send interaction to visualizer
+                if self.visualizer:
+                    self.visualizer.send_interaction(self.suspect["name"], duration=60)
+
                 # Generate snippet for logs
                 if self.logs_modal:
                     thread = threading.Thread(
@@ -151,6 +157,10 @@ class ConversationScreen:
                 response, personality_changes = self.agent.respond(self.loading_message)
                 self.pending_response = response
                 self.response_cache[self.loading_message] = response
+
+                # Send conversation trace to visualizer
+                if self.visualizer:
+                    self.visualizer.send_interaction(self.suspect["name"], duration=60)
         except Exception as e:
             self.pending_response = f"Error getting response: {str(e)}"
         finally:
@@ -281,12 +291,18 @@ class ConversationScreen:
 
             # Detect personality changes and track them for animation
             current_state = self.agent.get_personality_state()
+            personality_updated = False
             for trait, new_level in current_state.items():
                 old_level = self.last_personality_state.get(trait, new_level)
                 change = new_level - old_level
                 if change != 0:
                     self.personality_changes[trait] = (change, self.change_animation_frames)
+                    personality_updated = True
                 self.last_personality_state[trait] = new_level
+
+            # Send personality update to visualizer
+            if personality_updated and self.visualizer:
+                self.visualizer.send_personality_update(self.suspect["name"], current_state)
 
             # Generate snippet for logs in background thread
             if self.logs_modal:
